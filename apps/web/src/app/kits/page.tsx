@@ -20,6 +20,9 @@ import {
   CreditCard,
   ChevronDown,
   ChevronUp,
+  Calendar,
+  Clock,
+  Target,
 } from "lucide-react";
 
 const SAMPLE_REALISTIC_JD = `Role: Senior Backend Engineer (Node.js & Distributed Systems)
@@ -73,15 +76,33 @@ interface ExtractedFlashcard {
   state?: "generated" | "edited" | "pinned";
 }
 
+interface ScheduleDay {
+  day: number;
+  focus: string;
+  question_ids: string[];
+  minutes: number;
+}
+
+interface KitSchedule {
+  days_available: number;
+  days: ScheduleDay[];
+}
+
+interface KitCoverage {
+  uncovered_requirement_ids: string[];
+  passes: number;
+}
+
 export default function KitsPage() {
   const { user, loading: authLoading, logout } = useAuth();
   const router = useRouter();
 
   const [jdText, setJdText] = useState(SAMPLE_REALISTIC_JD);
   const [companyUrl, setCompanyUrl] = useState("");
+  const [daysAvailable, setDaysAvailable] = useState(5);
   const [extracting, setExtracting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"questions" | "flashcards" | "requirements" | "brief">("questions");
+  const [activeTab, setActiveTab] = useState<"schedule" | "questions" | "flashcards" | "requirements" | "brief">("schedule");
   const [expandedQuestionId, setExpandedQuestionId] = useState<string | null>(null);
 
   const [result, setResult] = useState<{
@@ -89,6 +110,8 @@ export default function KitsPage() {
     companyBrief: ExtractedBrief;
     questions: ExtractedQuestion[];
     flashcards: ExtractedFlashcard[];
+    coverage: KitCoverage;
+    schedule: KitSchedule;
     crawledPages: { used: string[]; skipped: any[] };
     latencyMs: number;
   } | null>(null);
@@ -119,6 +142,7 @@ export default function KitsPage() {
         body: JSON.stringify({
           jdText: jdText.trim(),
           companyUrl: companyUrl.trim() || undefined,
+          daysAvailable,
         }),
       });
 
@@ -134,6 +158,8 @@ export default function KitsPage() {
         companyBrief: data.companyBrief || { summary: "", what_they_do: "" },
         questions: data.questions || [],
         flashcards: data.flashcards || [],
+        coverage: data.coverage || { uncovered_requirement_ids: [], passes: 1 },
+        schedule: data.schedule || { days_available: daysAvailable, days: [] },
         crawledPages: data.crawledPages || { used: [], skipped: [] },
         latencyMs: Math.round(endTime - startTime),
       });
@@ -214,20 +240,20 @@ export default function KitsPage() {
             <div>
               <div className="flex items-center space-x-2 text-xs font-mono text-amber-400 mb-1">
                 <Cpu className="w-3.5 h-3.5" />
-                <span>PHASES 4, 5 &amp; 6 GENERATION CONSOLE</span>
+                <span>PHASES 4–7 COMPLETE AI KIT ENGINE</span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
                 AI Interview Prep Kit Studio
               </h1>
               <p className="text-xs sm:text-sm text-zinc-400 mt-1">
-                Grounded requirement parsing, per-category question generation, and spaced-repetition flashcards.
+                Grounded requirements, categorized questions, flashcards, deterministic coverage verification &amp; schedule allocation.
               </p>
             </div>
 
             <div className="flex items-center space-x-2">
               <span className="inline-flex items-center px-2.5 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 mr-1.5 animate-pulse"></span>
-                OpenRouter Pipeline Ready
+                Deterministic Logic Active
               </span>
             </div>
           </div>
@@ -265,7 +291,7 @@ export default function KitsPage() {
               <textarea
                 value={jdText}
                 onChange={(e) => setJdText(e.target.value)}
-                rows={10}
+                rows={9}
                 placeholder="Paste job description here..."
                 className="w-full bg-[#07080c] border border-white/[0.08] rounded-lg p-3.5 text-xs font-mono text-zinc-200 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 resize-y leading-relaxed"
               />
@@ -280,11 +306,31 @@ export default function KitsPage() {
                   value={companyUrl}
                   onChange={(e) => setCompanyUrl(e.target.value)}
                   placeholder="https://company.com"
-                  className="w-full bg-[#07080c] border border-white/[0.08] rounded-lg px-3.5 py-2.5 text-xs font-mono text-zinc-200 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50"
+                  className="w-full bg-[#07080c] border border-white/[0.08] rounded-lg px-3.5 py-2 text-xs font-mono text-zinc-200 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/50"
                 />
-                <p className="text-[11px] text-zinc-500 mt-1">
-                  If omitted, Rule 4 triggers: returns honest no-info brief without hallucinating.
-                </p>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-200 uppercase tracking-wider flex items-center space-x-1.5 mb-2">
+                  <Calendar className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Preparation Timeline (Days Available)</span>
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[1, 3, 5, 14].map((days) => (
+                    <button
+                      key={days}
+                      type="button"
+                      onClick={() => setDaysAvailable(days)}
+                      className={`py-1.5 text-xs font-mono rounded-lg border transition ${
+                        daysAvailable === days
+                          ? "bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold"
+                          : "bg-[#07080c] text-zinc-400 border-white/[0.06] hover:text-white"
+                      }`}
+                    >
+                      {days} {days === 1 ? "Day" : "Days"}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {error && (
@@ -306,12 +352,12 @@ export default function KitsPage() {
                 {extracting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Running Full AI Generation Pipeline...</span>
+                    <span>Executing Pipeline (LLM + Deterministic)...</span>
                   </>
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4" />
-                    <span>Generate Prep Kit Components</span>
+                    <span>Generate Complete Prep Kit</span>
                   </>
                 )}
               </button>
@@ -323,25 +369,41 @@ export default function KitsPage() {
             {result ? (
               <div className="space-y-4">
                 {/* Telemetry Bar */}
-                <div className="p-3 rounded-xl bg-[#0e111a] border border-white/[0.08] flex items-center justify-between font-mono text-xs">
+                <div className="p-3.5 rounded-xl bg-[#0e111a] border border-white/[0.08] flex flex-wrap items-center justify-between font-mono text-xs gap-3">
                   <div className="flex items-center space-x-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span className="text-zinc-200 font-semibold">Generation Succeeded</span>
+                    <span className="text-zinc-200 font-semibold">Kit Assembled</span>
                   </div>
                   <div className="flex items-center space-x-3 text-zinc-400">
                     <span>Latency: <strong className="text-amber-400">{result.latencyMs}ms</strong></span>
                     <span>•</span>
+                    <span>Days: <strong className="text-white">{result.schedule.days.length}</strong></span>
+                    <span>•</span>
                     <span>Q: <strong className="text-white">{result.questions.length}</strong></span>
                     <span>•</span>
-                    <span>F: <strong className="text-white">{result.flashcards.length}</strong></span>
+                    <span className="text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      Coverage: Pass {result.coverage.passes}
+                    </span>
                   </div>
                 </div>
 
                 {/* Navigation Tabs */}
-                <div className="flex space-x-1 p-1 bg-[#0e111a] border border-white/[0.08] rounded-xl font-mono text-xs">
+                <div className="flex space-x-1 p-1 bg-[#0e111a] border border-white/[0.08] rounded-xl font-mono text-xs overflow-x-auto">
+                  <button
+                    onClick={() => setActiveTab("schedule")}
+                    className={`flex-1 py-2 px-3 rounded-lg font-semibold transition flex items-center justify-center space-x-1.5 whitespace-nowrap ${
+                      activeTab === "schedule"
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                        : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Schedule ({result.schedule.days.length}d)</span>
+                  </button>
+
                   <button
                     onClick={() => setActiveTab("questions")}
-                    className={`flex-1 py-2 px-3 rounded-lg font-semibold transition flex items-center justify-center space-x-2 ${
+                    className={`flex-1 py-2 px-3 rounded-lg font-semibold transition flex items-center justify-center space-x-1.5 whitespace-nowrap ${
                       activeTab === "questions"
                         ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                         : "text-zinc-400 hover:text-white"
@@ -353,7 +415,7 @@ export default function KitsPage() {
 
                   <button
                     onClick={() => setActiveTab("flashcards")}
-                    className={`flex-1 py-2 px-3 rounded-lg font-semibold transition flex items-center justify-center space-x-2 ${
+                    className={`flex-1 py-2 px-3 rounded-lg font-semibold transition flex items-center justify-center space-x-1.5 whitespace-nowrap ${
                       activeTab === "flashcards"
                         ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                         : "text-zinc-400 hover:text-white"
@@ -365,7 +427,7 @@ export default function KitsPage() {
 
                   <button
                     onClick={() => setActiveTab("requirements")}
-                    className={`flex-1 py-2 px-3 rounded-lg font-semibold transition flex items-center justify-center space-x-2 ${
+                    className={`flex-1 py-2 px-3 rounded-lg font-semibold transition flex items-center justify-center space-x-1.5 whitespace-nowrap ${
                       activeTab === "requirements"
                         ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                         : "text-zinc-400 hover:text-white"
@@ -377,7 +439,7 @@ export default function KitsPage() {
 
                   <button
                     onClick={() => setActiveTab("brief")}
-                    className={`flex-1 py-2 px-3 rounded-lg font-semibold transition flex items-center justify-center space-x-2 ${
+                    className={`flex-1 py-2 px-3 rounded-lg font-semibold transition flex items-center justify-center space-x-1.5 whitespace-nowrap ${
                       activeTab === "brief"
                         ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                         : "text-zinc-400 hover:text-white"
@@ -387,6 +449,57 @@ export default function KitsPage() {
                     <span>Brief</span>
                   </button>
                 </div>
+
+                {/* Tab: Schedule */}
+                {activeTab === "schedule" && (
+                  <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+                    {result.schedule.days.map((day) => (
+                      <div
+                        key={day.day}
+                        className="p-4 rounded-xl bg-[#0e111a] border border-white/[0.08] hover:border-white/[0.15] transition space-y-3"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2.5">
+                            <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded border border-amber-500/20">
+                              DAY {day.day}
+                            </span>
+                            <span className="text-xs font-semibold text-white">
+                              {day.focus}
+                            </span>
+                          </div>
+                          <div className="flex items-center space-x-1.5 text-xs font-mono text-zinc-400 bg-zinc-900 px-2.5 py-1 rounded border border-white/[0.06]">
+                            <Clock className="w-3 h-3 text-amber-400" />
+                            <span>{day.minutes} min</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <span className="text-[10px] font-mono uppercase text-zinc-500 tracking-wider">
+                            Allocated Questions ({day.question_ids.length}):
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {day.question_ids.map((qid) => {
+                              const qObj = result.questions.find((q) => q.id === qid);
+                              return (
+                                <span
+                                  key={qid}
+                                  className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#07080c] border border-white/[0.08] text-zinc-300 flex items-center space-x-1"
+                                >
+                                  <strong className="text-amber-400">{qid}</strong>
+                                  {qObj && (
+                                    <span className="text-[10px] text-zinc-500">
+                                      ({qObj.category})
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Tab: Questions */}
                 {activeTab === "questions" && (
@@ -574,15 +687,16 @@ export default function KitsPage() {
                   <Terminal className="w-6 h-6 text-amber-400/80" />
                 </div>
                 <div className="space-y-1 max-w-sm">
-                  <h3 className="text-sm font-semibold text-white">AI Kit Output Studio</h3>
+                  <h3 className="text-sm font-semibold text-white">Full Kit Studio Ready</h3>
                   <p className="text-xs text-zinc-400 leading-relaxed">
-                    Click <strong>&quot;Generate Prep Kit Components&quot;</strong> to run extraction, question generation, and flashcard derivation in real-time.
+                    Click <strong>&quot;Generate Complete Prep Kit&quot;</strong> to run extraction, question generation, flashcards, coverage verification, and day-by-day scheduling.
                   </p>
                 </div>
                 <div className="p-3 rounded bg-[#07080c] border border-white/[0.06] text-[11px] font-mono text-zinc-500 text-left space-y-1">
                   <div>✓ Phase 4: Company Crawler &amp; SSRF Shield</div>
-                  <div>✓ Phase 5: Grounded JD Requirements &amp; Brief</div>
+                  <div>✓ Phase 5: Grounded Requirements &amp; Brief</div>
                   <div>✓ Phase 6: Categorized Questions &amp; Flashcards</div>
+                  <div>✓ Phase 7: Deterministic Schedule &amp; Coverage Loop</div>
                 </div>
               </div>
             )}

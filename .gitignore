@@ -30,7 +30,9 @@ Thumbs.db
 .idea/
 
 # Testing
-coverage/
+/coverage/
+apps/*/coverage/
+!apps/api/src/pipeline/coverage/
 .nyc_output/
 
 # Temporary artifacts

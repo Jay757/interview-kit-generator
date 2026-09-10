@@ -10,6 +10,8 @@ import {
   generateAllQuestions,
   generateFlashcards,
 } from "../pipeline/generation/index.js";
+import { runCoverageLoop } from "../pipeline/coverage/index.js";
+import { allocateSchedule } from "../pipeline/schedule/index.js";
 
 const router = Router();
 
@@ -19,7 +21,7 @@ router.use(requireAuth);
 // POST /kits/preview-extraction - Interactive extraction test endpoint for frontend
 router.post("/preview-extraction", async (req: Request, res: Response) => {
   try {
-    const { jdText, companyUrl } = req.body;
+    const { jdText, companyUrl, daysAvailable } = req.body;
 
     if (!jdText || typeof jdText !== "string" || !jdText.trim()) {
       res.status(400).json({
@@ -50,16 +52,31 @@ router.post("/preview-extraction", async (req: Request, res: Response) => {
       extractCompanyBrief(aboutText, hiringText),
     ]);
 
-    // Generate questions and flashcards using Phase 6 generators
-    const questions = await generateAllQuestions(requirements, hiringText);
-    const flashcards = await generateFlashcards(questions);
+    // 1. Generate initial draft questions
+    const draftQuestions = await generateAllQuestions(requirements, hiringText);
+
+    // 2. Deterministic coverage loop (Phase 7)
+    const { questions: coveredQuestions, coverage } = await runCoverageLoop(
+      requirements,
+      draftQuestions,
+      (uncovered) => generateAllQuestions(uncovered, hiringText)
+    );
+
+    // 3. Spaced-repetition flashcards
+    const flashcards = await generateFlashcards(coveredQuestions);
+
+    // 4. Deterministic schedule allocation (Phase 7)
+    const days = typeof daysAvailable === "number" && daysAvailable >= 1 ? daysAvailable : 5;
+    const schedule = allocateSchedule(requirements, coveredQuestions, days);
 
     res.status(200).json({
       success: true,
       requirements,
       companyBrief,
-      questions,
+      questions: coveredQuestions,
       flashcards,
+      coverage,
+      schedule,
       crawledPages,
     });
   } catch (error: any) {

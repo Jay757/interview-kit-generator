@@ -137,5 +137,27 @@ This document tracks technical decisions, trade-offs, and heuristics chosen thro
   2. Automatic fallback path distills directly from the question prompt and answer outline if LLM call times out or is bypassed, guaranteeing the kit is never missing flashcards.
   3. Stable sequential IDs (`f1`, `f2`...) and `requirement_ids` are mapped deterministically in code.
 
+---
+
+## 2026-09-10: Phase 7 Decisions — Coverage Loop & Schedule Allocation
+
+### Pure Set-Logic Coverage Check (Rule 3 Compliance)
+- **Decision**: Implemented `findUncoveredRequirements(requirements, questions)` and `runCoverageLoop` as pure TypeScript set logic (`allReqIds - coveredReqIds`).
+- **Reasoning**:
+  1. Strictly follows Rule 3: Deterministic logic never goes to the LLM. An LLM might hallucinate that an item is covered when no corresponding question exists.
+  2. Mandatory gaps (`must`) trigger targeted LLM follow-up generation passes.
+  3. Any remaining `nice` gaps are preserved honestly without fake questions or dropped requirements.
+
+### Deterministic Schedule Allocation & Partitioning
+- **Decision**: Implemented `allocateSchedule(questions, timelineDays)` using pure arithmetic bin packing.
+- **Reasoning**:
+  1. Sorts candidate questions by priority (`must` over `nice`) and difficulty (3 -> 2 -> 1) to maximize mastery of critical competencies early in the study plan.
+  2. Handles edge cases:
+     - **1-day timeline**: All questions packed into Day 1 with intensive cramming blocks.
+     - **5-day timeline**: Evenly distributed workload partitions.
+     - **60-day timeline**: Questions distributed across early foundation days with spaced repetition review drills scheduled on later days so that no day is left empty.
+  3. Guaranteed invariants: All `allocated_minutes >= 15`, every day has `day: number` and `items: ScheduleItem[]`.
+
+
 
 
