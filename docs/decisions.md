@@ -186,6 +186,28 @@ This document tracks technical decisions, trade-offs, and heuristics chosen thro
 - **Decision**: Implemented `computeGenerationHash(userId, jd, companyUrl, days)` using SHA-256 with a 15-minute sliding window.
 - **Reasoning**: Protects the user's OpenRouter rate limits from accidental double-clicks or duplicate submissions. If a kit with the exact same inputs is already generating or completed within 15 minutes, the existing kit ID is returned immediately with `isDuplicate: true` rather than spawning a duplicate generation job.
 
+---
+
+## 2026-09-10: Phase 9 Decisions — Batch Evaluation CLI
+
+### Shared Pipeline Invocation (Rule 8 & 2 Compliance)
+- **Decision**: The batch evaluate command (`npm run evaluate -- --input <path> --output <path>`) directly calls the identical `generateKit()` orchestrator function utilized by the web application. Zero divergence or redundant pipeline logic.
+- **Reasoning**: Strictly guarantees that evaluation kits evaluated by the grading harness match live interactive kits byte-for-byte in structure, reasoning, coverage loops, and schedule allocation.
+
+### Concurrency & Rate Limit Budget
+- **Decision**: Process batch cases sequentially (concurrency: 1) with per-case error containment.
+- **Reasoning**:
+  1. The grading benchmark budget requires 5 cases within 15 minutes (~3 minutes per case).
+  2. Sequential execution prevents tripping OpenRouter free-tier rate limits (15-20 requests/minute) when multiple LLM calls per case (extraction + question gen + coverage loop + flashcards) fire in rapid succession.
+  3. Leaves full rate limit headroom for exponential backoff retries if transient 429/5xx errors occur.
+
+### Error Containment & Honest Status Partitioning
+- **Decision**: If an individual case completely fails (e.g. empty job description, fatal LLM error), it writes `{ id, status: "failed", kit: null, error: { code, message } }` and proceeds to the remaining cases. Partial research gaps (missing hiring page or 404 company site) do NOT fail the case; they produce a valid kit with `{ id, status: "ok", kit: {...}, error: null }` with honest empty research properties.
+
+### Database Decoupling for CLI
+- **Decision**: The CLI runs pure pipeline generation without requiring MongoDB connection or session authentication. It takes input files, runs `generateKit`, validates against Appendix A, and outputs Appendix B JSON. This allows evaluation on fresh environments with only `npm install` and `OPENROUTER_API_KEY`.
+
+
 
 
 
