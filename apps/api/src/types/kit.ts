@@ -36,6 +36,9 @@ export interface KitRequirement {
   state?: ItemState;
 }
 
+export type Requirement = KitRequirement;
+export type CompanyBrief = KitCompanyBrief;
+
 export interface KitRole {
   title: string;
   seniority: string;

@@ -3,11 +3,68 @@ import mongoose from "mongoose";
 import { Kit } from "../models/Kit.js";
 import { requireAuth } from "../middleware/auth.js";
 import { validateKit } from "../validation/kitValidator.js";
+import { crawlCompanySite } from "../pipeline/retrieval/index.js";
+import {
+  extractRequirements,
+  extractCompanyBrief,
+} from "../pipeline/generation/index.js";
 
 const router = Router();
 
 // All kit CRUD routes require active session
 router.use(requireAuth);
+
+// POST /kits/preview-extraction - Interactive extraction test endpoint for frontend
+router.post("/preview-extraction", async (req: Request, res: Response) => {
+  try {
+    const { jdText, companyUrl } = req.body;
+
+    if (!jdText || typeof jdText !== "string" || !jdText.trim()) {
+      res.status(400).json({
+        error: {
+          code: "BAD_REQUEST",
+          message: "A non-empty jdText string is required.",
+        },
+      });
+      return;
+    }
+
+    let aboutText = "";
+    let hiringText: string | null = null;
+    let crawledPages = { used: [] as string[], skipped: [] as any[] };
+
+    if (companyUrl && typeof companyUrl === "string" && companyUrl.trim()) {
+      const crawl = await crawlCompanySite(companyUrl.trim());
+      aboutText = crawl.aboutText;
+      hiringText = crawl.hiringText;
+      crawledPages = {
+        used: crawl.pagesUsed,
+        skipped: crawl.pagesSkipped,
+      };
+    }
+
+    const [requirements, companyBrief] = await Promise.all([
+      extractRequirements(jdText.trim()),
+      extractCompanyBrief(aboutText, hiringText),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      requirements,
+      companyBrief,
+      crawledPages,
+    });
+  } catch (error: any) {
+    console.error("Extraction preview error:", error);
+    res.status(error.status || 500).json({
+      error: {
+        code: error.code || "EXTRACTION_FAILED",
+        message: error.message || "Failed to extract requirements.",
+        details: error.details,
+      },
+    });
+  }
+});
 
 // POST /kits - Dev / stub persistence endpoint validating against Appendix A shape
 router.post("/", async (req: Request, res: Response) => {

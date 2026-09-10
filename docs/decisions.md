@@ -81,3 +81,34 @@ This document tracks technical decisions, trade-offs, and heuristics chosen thro
 - **Decision**: Implemented `searchPublicInterviewDiscussion(companyName)` in `apps/api/src/pipeline/retrieval/discussion.ts` with transparent null fallback.
 - **Reasoning**: Connects to Tavily Search API when `TAVILY_API_KEY` is present. When absent or unconfigured, it returns `null` cleanly without throwing errors and strictly adheres to the rule: **Never invent facts**. LLM generation downstream operates honestly with company about/hiring text alone when public discussions are unavailable.
 
+---
+
+## 2026-09-10: Phase 5 Decisions — LLM Extraction: Requirements & Company Brief
+
+### Provider & Model Selection: OpenRouter
+- **Decision**: Implemented **OpenRouter** (`https://openrouter.ai/api/v1/chat/completions`) as the exclusive unified LLM API gateway, configured with `OPENROUTER_API_KEY` and configurable model via `OPENROUTER_MODEL` (defaulting to `google/gemini-2.5-flash` or models like `openrouter/free`).
+- **Reasoning**:
+  1. OpenRouter provides direct access to top-tier models (Gemini 2.5 Flash, Claude, Llama 3.3, DeepSeek) through a single standard OpenAI-compatible API without vendor lock-in.
+  2. The custom client implementation in `apps/api/src/pipeline/llm/client.ts` uses native `fetch` with zero SDK bloat, full streaming/JSON mode support (`response_format: { type: "json_object" }`), custom `HTTP-Referer`/`X-Title` headers, and automatic exponential backoff on 429/5xx status codes with jitter.
+
+### Grounding, Untrusted Source Framing & Thin-JD Handling
+- **Decision**:
+  1. All untrusted job descriptions and crawled page texts are encapsulated inside `<source>` blocks per Rule 5, preventing prompt injection.
+  2. Prompts strictly forbid the LLM from inventing, hallucinating, or extrapolating qualifications not explicitly stated in the text.
+  3. Thin-JD handling is explicitly enforced: when presented with a 1-3 line JD, the prompt forbids padding or expanding the requirements, and returns only the atomic requirements directly present.
+
+### Must vs Nice Priority Split
+- **Decision**: Instructed the LLM to separate mandatory requirements (`must`) from optional/preferred qualifications (`nice`) as distinct signals.
+- **Reasoning**: Per the brief, recruiters and grading benchmarks heavily penalize conflating optional bonuses (e.g., "bonus if you know Go") with hard prerequisites (e.g., "5+ years TypeScript required").
+
+### Code-Assigned Stable IDs & Defensive Corrective Retry
+- **Decision**:
+  1. The LLM is never asked to generate requirement IDs. Stable IDs (`r1`, `r2`, ...) and `state: "generated"` are assigned deterministically in code after output parsing.
+  2. Outputs are defensively parsed (stripping any accidental markdown code fences) and validated against Zod schemas.
+  3. If JSON parsing or Zod schema validation fails on the first attempt, the system issues a single corrective follow-up prompt providing the exact error details. If it fails a second time, it throws a typed `LLMError` with code `LLM_INVALID_OUTPUT`.
+
+### Honest Empty Crawl Fallback (Rule 4 Compliance)
+- **Decision**: In `extractCompanyBrief(aboutText, hiringText)`, if both inputs are empty, null, or whitespace-only, the function returns `{ summary: "No public company information found.", what_they_do: "No public company information found." }` directly in code without calling the LLM.
+- **Reasoning**: Strictly complies with Rule 4: "Never invent facts; return honest empty/unfound states when crawl or public info is missing." Calling an LLM with no source text causes hallucination; intercepting at the code layer ensures 100% honesty.
+
+
