@@ -64,6 +64,10 @@ export interface KitFlashcard {
   state?: ItemState;
 }
 
+export type Question = KitQuestion;
+export type Flashcard = KitFlashcard;
+
+
 export interface KitScheduleDay {
   day: number;
   focus: string;

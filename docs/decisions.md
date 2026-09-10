@@ -111,4 +111,31 @@ This document tracks technical decisions, trade-offs, and heuristics chosen thro
 - **Decision**: In `extractCompanyBrief(aboutText, hiringText)`, if both inputs are empty, null, or whitespace-only, the function returns `{ summary: "No public company information found.", what_they_do: "No public company information found." }` directly in code without calling the LLM.
 - **Reasoning**: Strictly complies with Rule 4: "Never invent facts; return honest empty/unfound states when crawl or public info is missing." Calling an LLM with no source text causes hallucination; intercepting at the code layer ensures 100% honesty.
 
+---
+
+## 2026-09-10: Phase 6 Decisions — Question & Flashcard Generation
+
+### Separate LLM Calls Per Requirement & Category
+- **Decision**: Built `generateQuestionsForRequirement(requirement, category, hiringProcessContext)` to execute dedicated, isolated LLM calls per requirement/category rather than a single monolithic batch call.
+- **Reasoning**:
+  1. The brief explicitly evaluates prompt sequencing and quality. A technical skill like "TypeScript event loop" demands fundamentally different evaluation framing than a behavioural skill like "cross-team mentorship."
+  2. Granular calls eliminate prompt dilution, ensure every single requirement receives dedicated interview attention, and allow fine-grained error resilience (a single timeout on one question does not abort the entire prep kit).
+
+### Category-Specific Prompt Differentiation
+- **Decision**: Implemented `buildCategorySystemPrompt(category, hiringProcessContext)` producing distinct evaluator personas and evaluation criteria:
+  - **Technical**: Implementation depth, debugging scenarios, performance bottlenecks, runtime trade-offs.
+  - **Behavioural**: STAR method (Situation, Task, Action, Result), leadership under ambiguity, conflict resolution.
+  - **System Design**: Scale (throughput/latency), partitioning strategies, failure modes, consistency trade-offs.
+  - **Company Fit**: Cultural adaptability, mission alignment, communication style.
+
+### Dynamic Hiring-Process Context Integration
+- **Decision**: If crawl/retrieval discovered hiring-process details (e.g. whiteboard system design round, take-home challenge, live pair programming), this context is injected inside `<hiring-process>` tags to align the questions with the company's real interview stages. When absent, it falls back to standard industry benchmarks without hallucinating custom rounds.
+
+### Flashcard Derivation & Dual Strategy
+- **Decision**: In `generateFlashcards(questions)`:
+  1. Primary path uses the LLM to condense questions into high-yield spaced-repetition prompt/answer flashcards.
+  2. Automatic fallback path distills directly from the question prompt and answer outline if LLM call times out or is bypassed, guaranteeing the kit is never missing flashcards.
+  3. Stable sequential IDs (`f1`, `f2`...) and `requirement_ids` are mapped deterministically in code.
+
+
 

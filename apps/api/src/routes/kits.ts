@@ -7,6 +7,8 @@ import { crawlCompanySite } from "../pipeline/retrieval/index.js";
 import {
   extractRequirements,
   extractCompanyBrief,
+  generateAllQuestions,
+  generateFlashcards,
 } from "../pipeline/generation/index.js";
 
 const router = Router();
@@ -48,10 +50,16 @@ router.post("/preview-extraction", async (req: Request, res: Response) => {
       extractCompanyBrief(aboutText, hiringText),
     ]);
 
+    // Generate questions and flashcards using Phase 6 generators
+    const questions = await generateAllQuestions(requirements, hiringText);
+    const flashcards = await generateFlashcards(questions);
+
     res.status(200).json({
       success: true,
       requirements,
       companyBrief,
+      questions,
+      flashcards,
       crawledPages,
     });
   } catch (error: any) {
