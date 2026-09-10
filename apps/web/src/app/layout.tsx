@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AuthProvider } from "../context/AuthContext";
 
 export const metadata: Metadata = {
   title: "Trao — AI Interview Prep Kit",
@@ -14,8 +15,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased min-h-screen bg-slate-900 text-slate-100">
-        {children}
+      <body className="antialiased min-h-screen bg-[#090a0f] text-slate-100">
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

@@ -1,19 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useAuth } from "../context/AuthContext";
 import {
   Activity,
   Check,
   Cpu,
   Database,
   ExternalLink,
+  FolderLock,
   GitBranch,
   Globe,
+  LogOut,
   Radio,
   RefreshCw,
   Server,
   ShieldCheck,
   Terminal,
+  User as UserIcon,
   Zap,
 } from "lucide-react";
 
@@ -28,6 +33,8 @@ export default function Home() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [lastCheck, setLastCheck] = useState<string | null>(null);
+
+  const { user, logout, loading: authLoading } = useAuth();
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
@@ -71,13 +78,13 @@ export default function Home() {
       id: "02",
       name: "Session Auth",
       desc: "User auth, MongoDB session store, protected routes",
-      status: "current",
+      status: "complete",
     },
     {
       id: "03",
       name: "Kit Data Models",
       desc: "Appendix A schema, Zod runtime validator, owner CRUD",
-      status: "upcoming",
+      status: "current",
     },
     {
       id: "04",
@@ -163,6 +170,45 @@ export default function Home() {
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-amber-400" : ""}`} />
             </button>
+
+            {/* Auth Navigation */}
+            <div className="flex items-center space-x-2 pl-2 border-l border-zinc-800">
+              {authLoading ? (
+                <div className="h-7 w-20 bg-zinc-900 rounded animate-pulse" />
+              ) : user ? (
+                <div className="flex items-center space-x-2">
+                  <Link
+                    href="/kits"
+                    className="flex items-center space-x-1.5 px-2.5 py-1 rounded bg-amber-500/10 border border-amber-500/30 text-xs font-mono text-amber-300 hover:bg-amber-500/20 transition"
+                  >
+                    <FolderLock className="w-3 h-3 text-amber-400" />
+                    <span className="truncate max-w-[120px]">{user.email}</span>
+                  </Link>
+                  <button
+                    onClick={() => logout()}
+                    title="Sign out"
+                    className="p-1.5 rounded bg-zinc-900 border border-white/[0.08] hover:border-zinc-700 text-zinc-400 hover:text-white transition"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-2">
+                  <Link
+                    href="/login"
+                    className="px-2.5 py-1 rounded bg-zinc-900 border border-white/[0.08] hover:border-zinc-700 text-xs font-mono text-zinc-300 hover:text-white transition"
+                  >
+                    Sign In
+                  </Link>
+                  <Link
+                    href="/register"
+                    className="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black text-xs font-mono font-medium transition shadow-[0_0_10px_rgba(245,158,11,0.2)]"
+                  >
+                    Register
+                  </Link>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
