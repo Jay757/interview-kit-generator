@@ -207,6 +207,29 @@ This document tracks technical decisions, trade-offs, and heuristics chosen thro
 ### Database Decoupling for CLI
 - **Decision**: The CLI runs pure pipeline generation without requiring MongoDB connection or session authentication. It takes input files, runs `generateKit`, validates against Appendix A, and outputs Appendix B JSON. This allows evaluation on fresh environments with only `npm install` and `OPENROUTER_API_KEY`.
 
+---
+
+## 2026-09-10: Phase 10 Decisions — Frontend: Kit Creation & Multi-Role Input
+
+### Screen Space Utilization & High-Information Design System
+- **Decision**: Modeled the frontend after top developer platforms (Linear, Raycast, Vercel). Deep obsidian theme (`#090a0f`), fine 1px zinc borders (`#272c3d`), subtle architectural grid, and high-contrast electric amber accents (`#f59e0b`).
+- **Reasoning**: Fulfills the user requirement to properly utilize screen space, avoid AI slop/purple gradients, and deliver high information density with zero wasted margins.
+
+### Multi-Role Preparation Choice: Direct Input Mode + Batch JSON/CSV
+- **Decision**: Provided a seamless mode switcher on `/kits/new` supporting both:
+  1. Single Role creation with instant 1-click sample presets (Staff Backend, Senior Frontend, Thin Minimalist).
+  2. Multi-Role Batch upload supporting pasted JSON arrays or CSV rows (`id, company_url, days, jd`) with instant client-side validation and sequential execution.
+- **Reasoning**: The brief permits either repeatable input or file upload. Supporting both gives candidates preparing for multiple company interview loops maximum flexibility with zero configuration.
+
+### Live Granular Pipeline Stage Tracking (`GET /kits/:id/status`)
+- **Decision**: `/kits/:id` polls `GET /kits/:id/status` at 1.5-second intervals, displaying an animated 7-stage pipeline radar (`retrieving` -> `extracting` -> `generating_questions` -> `verifying_coverage` -> `generating_flashcards` -> `allocating_schedule` -> `completed`) with elapsed timer.
+- **Reasoning**: Generation takes 30–90 seconds due to rate limits and LLM reasoning. Live step feedback gives users instant confidence that work is progressing without blocking the browser.
+
+### Master-Detail Responsive Read-Only Kit Layout
+- **Decision**: On `/kits/:id`, used a 2-column responsive layout (Left: Company intelligence, role breakdown, requirement checklist; Right: Interactive tab bar for Schedule, Questions, Flashcards, and Coverage).
+- **Reasoning**: Eliminates vertical scrolling fatigue and makes studying intuitive, with full keyboard accessibility (Arrow keys and Spacebar for flashcards, clean focus rings).
+
+
 
 
 
