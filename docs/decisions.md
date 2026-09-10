@@ -260,13 +260,32 @@ This document tracks technical decisions, trade-offs, and heuristics chosen thro
   5. Re-runs deterministic coverage check and updates schedule.
 - **Reasoning**: Server-side enforcement ensures regeneration never accidentally clobbers edited items even if client state is stale.
 
-### Immediate Autosave UX (`PATCH /kits/:id`)
-- **Decision**: Edits are persisted via a debounced (600ms) `PATCH /kits/:id` endpoint with last-write-wins concurrency semantics. A persistent status indicator (`● Saving...` -> `✓ Saved`) gives users immediate feedback.
+---
 
+## 2026-09-10: Phase 12 Decisions — Practice Mode & Adaptive Ordering
 
+### Ordering Algorithm Selection: Simplified SM-2 over Naive Confidence Sort
+- **Decision**: Implemented a **Simplified SM-2 Spaced Repetition Algorithm** with urgency-based scheduling in `apps/api/src/pipeline/practice/ordering.ts`.
+- **Reasoning**:
+  1. **Memory Stability & Forgetting Curves**: SM-2 tracks repetition count $n$, an easiness factor ($EF$, initialized at 2.5), and exponential interval growth ($I = I \times EF$). In technical interview preparation with limited study time, answering a flashcard correctly 3 sessions in a row denotes high stability.
+  2. **Lapse Handling**: If a candidate forgets a previously known concept and rates it "Again" (1), SM-2 resets repetition count to 0 and interval to immediate ($< 1$ day), aggressively resurfacing it for the next session.
+  3. **Why Not Simple Confidence-Weighted Sort?**:
+     - A simple confidence average ignores elapsed time: a card rated "Easy (4)" two weeks ago would permanently rank below a card rated "Good (3)" five minutes ago, starving older cards of necessary retrieval practice right before the candidate's interview.
+     - A simple average has no concept of memory consolidation: 1 rating of 3 would be treated identically to 10 consecutive ratings of 3.
+  4. **Urgency Formula**:
+     - Cards never touched are given top priority ($+\infty$ urgency) to maximize syllabus requirement coverage.
+     - For practiced cards, urgency is computed as $\text{urgency} = \frac{\text{now} - \text{due}}{\text{intervalDays}}$, ensuring overdue cards and failed cards are prioritized at the front of the next session deck.
 
+### 4-Point Tactile Confidence Scale
+- **Decision**: Adopted a standard 4-point rating scale:
+  - `1`: **Again** (Interval: 0 / immediate, lapses $n=0$, $EF$ penalty $-0.20$)
+  - `2`: **Hard** (Interval: 1 day, $EF$ penalty $-0.15$)
+  - `3`: **Good** (Interval: $I \times EF$, $EF$ maintained)
+  - `4`: **Easy** (Interval: $I \times EF \times 1.3$, $EF$ bonus $+0.15$)
+- **Reasoning**: Cognitive load is minimized compared to 5-point scales; mapped to standard numeric keys `[1]`, `[2]`, `[3]`, `[4]` for rapid, frictionless keyboard flow.
 
-
-
-
-
+### Accumulative History & Coverage Tracking
+- **Decision**: Persisted timestamped attempt records `practice_attempts: Array<{ card_id, confidence, timestamp }>` on the `Kit` document.
+- **Reasoning**: Allows history to accumulate across multiple study sessions. Enables dual coverage analysis:
+  1. Direct flashcard coverage (practiced vs untouched).
+  2. Requirement coverage: maps practiced flashcards back to `requirement_ids` to show which job description requirements have received active recall reinforcement.

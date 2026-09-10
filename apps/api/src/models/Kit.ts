@@ -1,6 +1,12 @@
 import mongoose, { Document, Schema, Model } from "mongoose";
 import { KitStructure } from "../types/kit.js";
 
+export interface IPracticeAttempt {
+  card_id: string;
+  confidence: number;
+  timestamp: string;
+}
+
 export interface IKitDocument extends Document, KitStructure {
   _id: mongoose.Types.ObjectId;
   ownerId: mongoose.Types.ObjectId;
@@ -8,6 +14,7 @@ export interface IKitDocument extends Document, KitStructure {
   generationHash?: string | null;
   progressStage?: string;
   errorMessage?: string | null;
+  practice_attempts?: IPracticeAttempt[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -125,6 +132,14 @@ const KitSchema: Schema<IKitDocument> = new Schema<IKitDocument>(
       uncovered_requirement_ids: { type: [String], default: [] },
       passes: { type: Number, default: 1 },
     },
+    practice_attempts: [
+      {
+        _id: false,
+        card_id: { type: String, required: true },
+        confidence: { type: Number, required: true },
+        timestamp: { type: String, required: true },
+      },
+    ],
   },
   {
     timestamps: true,

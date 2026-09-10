@@ -699,6 +699,184 @@ router.post("/:id/regenerate", async (req: Request, res: Response) => {
   }
 });
 
+import {
+  orderFlashcardsForNextSession,
+  computePracticeCoverage,
+} from "../pipeline/practice/ordering.js";
+
+// GET /kits/:id/practice - Get adaptive ordered flashcards and practice coverage
+router.get("/:id/practice", async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({
+        error: {
+          code: "NOT_FOUND",
+          message: "Kit not found.",
+        },
+      });
+      return;
+    }
+
+    const kit = await Kit.findById(id);
+
+    if (!kit) {
+      res.status(404).json({
+        error: {
+          code: "NOT_FOUND",
+          message: "Kit not found.",
+        },
+      });
+      return;
+    }
+
+    // Owner authorization check
+    if (kit.ownerId.toString() !== req.session.userId) {
+      res.status(403).json({
+        error: {
+          code: "FORBIDDEN",
+          message: "You do not have permission to access this kit.",
+        },
+      });
+      return;
+    }
+
+    const attempts = kit.practice_attempts || [];
+    const orderedFlashcards = orderFlashcardsForNextSession(kit.flashcards || [], attempts);
+    const coverage = computePracticeCoverage(
+      kit.flashcards || [],
+      kit.role?.requirements || [],
+      attempts
+    );
+
+    res.status(200).json({
+      kit_id: kit._id,
+      role: kit.role?.title || "Role",
+      company: kit.source?.company || "Company",
+      flashcards: orderedFlashcards,
+      coverage,
+      attempts,
+    });
+  } catch (error: any) {
+    console.error("Get practice mode error:", error);
+    res.status(500).json({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "An error occurred while loading practice mode.",
+      },
+    });
+  }
+});
+
+// POST /kits/:id/practice/attempt - Record confidence rating for a flashcard attempt
+router.post("/:id/practice/attempt", async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({
+        error: {
+          code: "NOT_FOUND",
+          message: "Kit not found.",
+        },
+      });
+      return;
+    }
+
+    const kit = await Kit.findById(id);
+
+    if (!kit) {
+      res.status(404).json({
+        error: {
+          code: "NOT_FOUND",
+          message: "Kit not found.",
+        },
+      });
+      return;
+    }
+
+    // Owner authorization check
+    if (kit.ownerId.toString() !== req.session.userId) {
+      res.status(403).json({
+        error: {
+          code: "FORBIDDEN",
+          message: "You do not have permission to modify this kit.",
+        },
+      });
+      return;
+    }
+
+    const { card_id, confidence } = req.body;
+
+    if (!card_id || typeof card_id !== "string") {
+      res.status(400).json({
+        error: {
+          code: "INVALID_REQUEST",
+          message: "card_id is required.",
+        },
+      });
+      return;
+    }
+
+    const confNum = Number(confidence);
+    if (![1, 2, 3, 4].includes(confNum)) {
+      res.status(400).json({
+        error: {
+          code: "INVALID_REQUEST",
+          message: "confidence must be an integer between 1 and 4.",
+        },
+      });
+      return;
+    }
+
+    // Ensure card exists in kit
+    const cardExists = (kit.flashcards || []).some((c) => c.id === card_id);
+    if (!cardExists) {
+      res.status(400).json({
+        error: {
+          code: "CARD_NOT_FOUND",
+          message: `Flashcard with id '${card_id}' does not exist in this kit.`,
+        },
+      });
+      return;
+    }
+
+    if (!Array.isArray(kit.practice_attempts)) {
+      kit.practice_attempts = [];
+    }
+
+    const attempt = {
+      card_id,
+      confidence: confNum,
+      timestamp: new Date().toISOString(),
+    };
+
+    kit.practice_attempts.push(attempt);
+    await kit.save();
+
+    const coverage = computePracticeCoverage(
+      kit.flashcards || [],
+      kit.role?.requirements || [],
+      kit.practice_attempts
+    );
+
+    res.status(200).json({
+      status: "ok",
+      attempt,
+      coverage,
+    });
+  } catch (error: any) {
+    console.error("Record practice attempt error:", error);
+    res.status(500).json({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "An error occurred while saving practice attempt.",
+      },
+    });
+  }
+});
+
 // DELETE /kits/:id - Delete kit, strictly owner-scoped
 router.delete("/:id", async (req: Request, res: Response) => {
   try {

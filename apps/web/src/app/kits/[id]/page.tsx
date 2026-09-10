@@ -737,6 +737,15 @@ export default function KitBuilderPage() {
 
               {/* Action Buttons */}
               <div className="flex items-center gap-2.5">
+                <a
+                  href={`/kits/${id}/practice`}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/40 bg-amber-500/15 hover:bg-amber-500/25 text-xs font-semibold text-amber-300 transition-all shadow-sm"
+                  title="Launch Adaptive Flashcard Practice Mode"
+                >
+                  <span className="text-amber-400">⚡</span>
+                  <span>Practice Mode</span>
+                </a>
+
                 <button
                   onClick={downloadKitJson}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-700/80 bg-zinc-900 hover:bg-zinc-800 text-xs font-medium text-zinc-200 transition-colors shadow-sm"
@@ -1445,6 +1454,14 @@ export default function KitBuilderPage() {
                       </div>
 
                       <div className="flex items-center gap-2">
+                        <a
+                          href={`/kits/${id}/practice`}
+                          className="px-3 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-semibold hover:bg-amber-500/30 transition-colors flex items-center gap-1.5 shadow-sm"
+                          title="Start SM-2 Adaptive Practice Session"
+                        >
+                          <span>⚡</span>
+                          <span>Start Practice Mode</span>
+                        </a>
                         <button
                           onClick={() => setFlashcardViewMode("deck")}
                           className={`px-2.5 py-1 rounded text-xs font-mono transition-colors ${
