@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Navbar } from "../../../components/Navbar";
 import { useAuth } from "../../../context/AuthContext";
@@ -8,7 +8,9 @@ import {
   KitStructure,
   KitQuestion,
   KitRequirement,
+  KitFlashcard,
   QuestionCategory,
+  DifficultyLevel,
 } from "../../../../../api/src/types/kit";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
@@ -23,7 +25,7 @@ const STAGES = [
   { id: "completed", label: "Assembly Ready", desc: "Validating Appendix A structure" },
 ];
 
-export default function KitDetailPage() {
+export default function KitBuilderPage() {
   const params = useParams();
   const router = useRouter();
   const id = params?.id as string;
@@ -35,7 +37,7 @@ export default function KitDetailPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-  // Active view tab in read-only mode
+  // Active view tab
   const [activeTab, setActiveTab] = useState<"schedule" | "questions" | "flashcards" | "coverage">(
     "schedule"
   );
@@ -49,7 +51,32 @@ export default function KitDetailPage() {
   // Expanded question IDs for answer outlines
   const [expandedQuestionIds, setExpandedQuestionIds] = useState<Set<string>>(new Set());
 
-  // Interactive Flashcards state
+  // Editing state trackers
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
+  const [editingFlashcardId, setEditingFlashcardId] = useState<string | null>(null);
+  const [isEditingBrief, setIsEditingBrief] = useState(false);
+  const [briefSummaryInput, setBriefSummaryInput] = useState("");
+  const [briefWhatTheyDoInput, setBriefWhatTheyDoInput] = useState("");
+
+  // Adding state
+  const [isAddingQuestion, setIsAddingQuestion] = useState(false);
+  const [newQuestionCategory, setNewQuestionCategory] = useState<QuestionCategory>("technical");
+  const [newQuestionPrompt, setNewQuestionPrompt] = useState("");
+  const [newQuestionAnswer, setNewQuestionAnswer] = useState("");
+  const [newQuestionDifficulty, setNewQuestionDifficulty] = useState<DifficultyLevel>(2);
+
+  const [isAddingFlashcard, setIsAddingFlashcard] = useState(false);
+  const [newCardFront, setNewCardFront] = useState("");
+  const [newCardBack, setNewCardBack] = useState("");
+
+  // Section regeneration loading indicators
+  const [regeneratingSection, setRegeneratingSection] = useState<string | null>(null);
+
+  // Autosave status: "saved" | "saving" | "error"
+  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "error">("saved");
+  const autosaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Interactive Flashcards deck state
   const [flashcardIndex, setFlashcardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [flashcardViewMode, setFlashcardViewMode] = useState<"deck" | "grid">("deck");
@@ -102,7 +129,6 @@ export default function KitDetailPage() {
         setStage(data.stage || "starting");
         setErrorMessage(data.errorMessage || null);
 
-        // If generation completed, fetch the complete kit object
         if (data.status === "completed") {
           clearInterval(pollInterval);
           fetchFullKit();
@@ -124,6 +150,8 @@ export default function KitDetailPage() {
           if (isSubscribed) {
             setKit(fullData.kit);
             setStatus("completed");
+            setBriefSummaryInput(fullData.kit.company_brief?.summary || "");
+            setBriefWhatTheyDoInput(fullData.kit.company_brief?.what_they_do || "");
           }
         }
       } catch (err: any) {
@@ -131,10 +159,7 @@ export default function KitDetailPage() {
       }
     };
 
-    // First immediate check
     checkStatus();
-
-    // Start 1.5-second polling interval while generating
     pollInterval = setInterval(checkStatus, 1500);
 
     return () => {
@@ -143,15 +168,289 @@ export default function KitDetailPage() {
     };
   }, [id]);
 
+  // Debounced Autosave to PATCH /kits/:id
+  const triggerAutosave = useCallback(
+    (updatedKit: KitStructure) => {
+      setSaveStatus("saving");
+      if (autosaveTimeoutRef.current) {
+        clearTimeout(autosaveTimeoutRef.current);
+      }
+
+      autosaveTimeoutRef.current = setTimeout(async () => {
+        try {
+          const res = await fetch(`${API_URL}/kits/${id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              company_brief: updatedKit.company_brief,
+              role: updatedKit.role,
+              questions: updatedKit.questions,
+              flashcards: updatedKit.flashcards,
+              schedule: updatedKit.schedule,
+              coverage: updatedKit.coverage,
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            setKit(data.kit);
+            setSaveStatus("saved");
+          } else {
+            setSaveStatus("error");
+          }
+        } catch {
+          setSaveStatus("error");
+        }
+      }, 600);
+    },
+    [id]
+  );
+
+  // Update Question (inline edit, category change, difficulty change)
+  const updateQuestion = (
+    qid: string,
+    updates: Partial<KitQuestion>,
+    markAs: "edited" | "pinned" = "edited"
+  ) => {
+    if (!kit) return;
+    const nextQuestions = kit.questions.map((q) => {
+      if (q.id === qid) {
+        return {
+          ...q,
+          ...updates,
+          state: q.state === "pinned" ? "pinned" : markAs,
+        };
+      }
+      return q;
+    });
+
+    const nextKit = { ...kit, questions: nextQuestions };
+    setKit(nextKit);
+    triggerAutosave(nextKit);
+  };
+
+  // Toggle question pin state
+  const toggleQuestionPin = (qid: string) => {
+    if (!kit) return;
+    const nextQuestions = kit.questions.map((q) => {
+      if (q.id === qid) {
+        const nextState = q.state === "pinned" ? ("edited" as const) : ("pinned" as const);
+        return { ...q, state: nextState };
+      }
+      return q;
+    });
+    const nextKit = { ...kit, questions: nextQuestions };
+    setKit(nextKit);
+    triggerAutosave(nextKit);
+  };
+
+  // Delete question with automatic cascade deletion from schedule
+  const deleteQuestion = (qid: string) => {
+    if (!kit) return;
+    if (!confirm("Delete this question? It will be removed from your daily schedule.")) return;
+
+    const nextQuestions = kit.questions.filter((q) => q.id !== qid);
+
+    // Cascade remove from schedule days
+    const nextDays = kit.schedule.days.map((day) => ({
+      ...day,
+      question_ids: day.question_ids.filter((id) => id !== qid),
+    }));
+
+    const nextSchedule = { ...kit.schedule, days: nextDays };
+    const nextKit = { ...kit, questions: nextQuestions, schedule: nextSchedule };
+    setKit(nextKit);
+    triggerAutosave(nextKit);
+  };
+
+  // Move question position up/down within category
+  const moveQuestion = (qid: string, direction: "up" | "down") => {
+    if (!kit) return;
+    const question = kit.questions.find((q) => q.id === qid);
+    if (!question) return;
+
+    const category = question.category;
+    const categoryQuestions = kit.questions.filter((q) => q.category === category);
+    const index = categoryQuestions.findIndex((q) => q.id === qid);
+
+    if (direction === "up" && index === 0) return;
+    if (direction === "down" && index === categoryQuestions.length - 1) return;
+
+    const swapIndex = direction === "up" ? index - 1 : index + 1;
+    const temp = categoryQuestions[index];
+    categoryQuestions[index] = categoryQuestions[swapIndex];
+    categoryQuestions[swapIndex] = temp;
+
+    // Mark moved items as edited to preserve order
+    categoryQuestions[index].state = categoryQuestions[index].state === "pinned" ? "pinned" : "edited";
+    categoryQuestions[swapIndex].state = categoryQuestions[swapIndex].state === "pinned" ? "pinned" : "edited";
+
+    // Reconstruct full questions list
+    const otherQuestions = kit.questions.filter((q) => q.category !== category);
+    const nextQuestions = [...otherQuestions, ...categoryQuestions];
+
+    const nextKit = { ...kit, questions: nextQuestions };
+    setKit(nextKit);
+    triggerAutosave(nextKit);
+  };
+
+  // Add new user-authored Question (marked "pinned" immediately)
+  const handleAddQuestionSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!kit || !newQuestionPrompt.trim()) return;
+
+    const newId = `q_custom_${Date.now()}`;
+    const customQ: KitQuestion = {
+      id: newId,
+      prompt: newQuestionPrompt.trim(),
+      answer_outline: newQuestionAnswer.trim() || "User provided key answer points.",
+      category: newQuestionCategory,
+      difficulty: newQuestionDifficulty,
+      requirement_ids: kit.role.requirements[0]?.id ? [kit.role.requirements[0].id] : [],
+      state: "pinned",
+    };
+
+    // Add to questions
+    const nextQuestions = [...kit.questions, customQ];
+
+    // Add to active schedule day if available
+    const nextDays = kit.schedule.days.map((d) => {
+      if (d.day === selectedDay) {
+        return { ...d, question_ids: [...d.question_ids, newId] };
+      }
+      return d;
+    });
+
+    const nextKit = {
+      ...kit,
+      questions: nextQuestions,
+      schedule: { ...kit.schedule, days: nextDays },
+    };
+
+    setKit(nextKit);
+    triggerAutosave(nextKit);
+
+    // Reset add form
+    setNewQuestionPrompt("");
+    setNewQuestionAnswer("");
+    setIsAddingQuestion(false);
+  };
+
+  // Update Flashcard
+  const updateFlashcard = (fid: string, front: string, back: string) => {
+    if (!kit) return;
+    const nextCards = kit.flashcards.map((c) => {
+      if (c.id === fid) {
+        return {
+          ...c,
+          front,
+          back,
+          state: c.state === "pinned" ? ("pinned" as const) : ("edited" as const),
+        };
+      }
+      return c;
+    });
+    const nextKit = { ...kit, flashcards: nextCards };
+    setKit(nextKit);
+    triggerAutosave(nextKit);
+    setEditingFlashcardId(null);
+  };
+
+  // Delete Flashcard
+  const deleteFlashcard = (fid: string) => {
+    if (!kit) return;
+    const nextCards = kit.flashcards.filter((c) => c.id !== fid);
+    const nextKit = { ...kit, flashcards: nextCards };
+    setKit(nextKit);
+    triggerAutosave(nextKit);
+    if (flashcardIndex >= nextCards.length) {
+      setFlashcardIndex(Math.max(0, nextCards.length - 1));
+    }
+  };
+
+  // Add Custom Flashcard (marked "pinned")
+  const handleAddFlashcardSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!kit || !newCardFront.trim() || !newCardBack.trim()) return;
+
+    const newId = `f_custom_${Date.now()}`;
+    const customCard: KitFlashcard = {
+      id: newId,
+      front: newCardFront.trim(),
+      back: newCardBack.trim(),
+      requirement_ids: kit.role.requirements[0]?.id ? [kit.role.requirements[0].id] : [],
+      state: "pinned",
+    };
+
+    const nextCards = [...kit.flashcards, customCard];
+    const nextKit = { ...kit, flashcards: nextCards };
+    setKit(nextKit);
+    triggerAutosave(nextKit);
+
+    setNewCardFront("");
+    setNewCardBack("");
+    setIsAddingFlashcard(false);
+  };
+
+  // Save Company Brief Edit
+  const saveBriefEdits = () => {
+    if (!kit) return;
+    const nextBrief = {
+      ...kit.company_brief,
+      summary: briefSummaryInput.trim(),
+      what_they_do: briefWhatTheyDoInput.trim(),
+      state: "edited" as const,
+    };
+    const nextKit = { ...kit, company_brief: nextBrief };
+    setKit(nextKit);
+    triggerAutosave(nextKit);
+    setIsEditingBrief(false);
+  };
+
+  // Trigger Sectional Regeneration (Rule 9 safe)
+  const handleRegenerateSection = async (
+    target: "company_brief" | "schedule" | "category",
+    category?: QuestionCategory
+  ) => {
+    if (!kit) return;
+    const label = category ? `category_${category}` : target;
+    setRegeneratingSection(label);
+
+    try {
+      const res = await fetch(`${API_URL}/kits/${id}/regenerate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ target, category }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setKit(data.kit);
+        if (target === "company_brief") {
+          setBriefSummaryInput(data.kit.company_brief?.summary || "");
+          setBriefWhatTheyDoInput(data.kit.company_brief?.what_they_do || "");
+        }
+      } else {
+        const err = await res.json();
+        alert(`Regeneration failed: ${err.error?.message || "Unknown error"}`);
+      }
+    } catch (e: any) {
+      alert(`Network error during regeneration: ${e.message}`);
+    } finally {
+      setRegeneratingSection(null);
+    }
+  };
+
   // Keyboard navigation for flashcard deck
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (activeTab !== "flashcards" || flashcardViewMode !== "deck" || !kit?.flashcards?.length) return;
-      if (e.key === "ArrowRight") {
-        nextCard();
-      } else if (e.key === "ArrowLeft") {
-        prevCard();
-      } else if (e.key === " " || e.key === "Enter") {
+      if (editingFlashcardId || isAddingFlashcard) return;
+      if (e.key === "ArrowRight") nextCard();
+      else if (e.key === "ArrowLeft") prevCard();
+      else if (e.key === " " || e.key === "Enter") {
         e.preventDefault();
         setIsFlipped((f) => !f);
       }
@@ -159,16 +458,13 @@ export default function KitDetailPage() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTab, flashcardViewMode, kit?.flashcards?.length]);
+  }, [activeTab, flashcardViewMode, kit?.flashcards?.length, editingFlashcardId, isAddingFlashcard]);
 
   const toggleQuestionOutline = (qid: string) => {
     setExpandedQuestionIds((prev) => {
       const next = new Set(prev);
-      if (next.has(qid)) {
-        next.delete(qid);
-      } else {
-        next.add(qid);
-      }
+      if (next.has(qid)) next.delete(qid);
+      else next.add(qid);
       return next;
     });
   };
@@ -199,6 +495,17 @@ export default function KitDetailPage() {
     return kit.questions.filter((q) => q.category === questionCategoryFilter);
   }, [kit?.questions, questionCategoryFilter]);
 
+  // Map of questions by ID
+  const questionMap = useMemo(() => {
+    const map = new Map<string, KitQuestion>();
+    if (kit?.questions) {
+      for (const q of kit.questions) {
+        map.set(q.id, q);
+      }
+    }
+    return map;
+  }, [kit?.questions]);
+
   // Download Appendix A JSON export
   const downloadKitJson = () => {
     if (!kit) return;
@@ -211,18 +518,6 @@ export default function KitDetailPage() {
     URL.revokeObjectURL(url);
   };
 
-  // Find question details by ID for schedule view
-  const questionMap = useMemo(() => {
-    const map = new Map<string, KitQuestion>();
-    if (kit?.questions) {
-      for (const q of kit.questions) {
-        map.set(q.id, q);
-      }
-    }
-    return map;
-  }, [kit?.questions]);
-
-  // Render difficulty badge
   const renderDifficulty = (level: number) => {
     const bars = [1, 2, 3];
     return (
@@ -230,13 +525,42 @@ export default function KitDetailPage() {
         {bars.map((b) => (
           <span
             key={b}
-            className={`h-2 w-1 rounded-sm ${
-              b <= level ? "bg-amber-400" : "bg-zinc-800"
-            }`}
+            className={`h-2 w-1 rounded-sm ${b <= level ? "bg-amber-400" : "bg-zinc-800"}`}
           />
         ))}
         <span className="ml-1 text-[10px] font-mono text-zinc-400">L{level}</span>
       </div>
+    );
+  };
+
+  const renderStateBadge = (itemState?: "generated" | "edited" | "pinned") => {
+    if (itemState === "pinned") {
+      return (
+        <span
+          className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40"
+          title="Pinned: Protected from regeneration"
+        >
+          📌 Pinned
+        </span>
+      );
+    }
+    if (itemState === "edited") {
+      return (
+        <span
+          className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40"
+          title="Edited: User modified, protected from regeneration"
+        >
+          ✎ Edited
+        </span>
+      );
+    }
+    return (
+      <span
+        className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-zinc-800 text-zinc-400 border border-zinc-700"
+        title="Generated: Subject to category regeneration"
+      >
+        AI
+      </span>
     );
   };
 
@@ -245,7 +569,7 @@ export default function KitDetailPage() {
       <Navbar />
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        {/* LOADING & GENERATING PROGRESS STATE */}
+        {/* GENERATING STAGE RADAR */}
         {(status === "generating" || (status === "loading" && !kit)) && (
           <div className="mx-auto max-w-2xl py-12">
             <div className="rounded-2xl border border-zinc-800/90 bg-[#0f1117] p-8 shadow-xl space-y-6">
@@ -274,7 +598,6 @@ export default function KitDetailPage() {
                 </div>
               </div>
 
-              {/* Pipeline Stage Checklist */}
               <div className="space-y-3 pt-2">
                 {STAGES.map((s, idx) => {
                   const stageIndex = STAGES.findIndex((item) => item.id === stage);
@@ -323,10 +646,6 @@ export default function KitDetailPage() {
                   );
                 })}
               </div>
-
-              <div className="pt-2 text-center text-xs text-zinc-400 font-mono">
-                No need to keep this tab open — the job continues in the background.
-              </div>
             </div>
           </div>
         )}
@@ -361,10 +680,10 @@ export default function KitDetailPage() {
           </div>
         )}
 
-        {/* COMPLETED READ-ONLY KIT VIEW */}
+        {/* COMPLETED BUILDER VIEW */}
         {status === "completed" && kit && (
           <div className="space-y-6">
-            {/* Top Command Bar & Breadcrumbs */}
+            {/* Top Command Bar & Save Status */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-zinc-800/80">
               <div>
                 <div className="flex items-center gap-2 text-xs text-zinc-400 mb-1.5 font-mono">
@@ -391,6 +710,28 @@ export default function KitDetailPage() {
                       📍 {kit.source.location}
                     </span>
                   )}
+
+                  {/* Autosave feedback badge */}
+                  <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono">
+                    {saveStatus === "saving" && (
+                      <span className="text-amber-400 flex items-center gap-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-ping" />
+                        Saving...
+                      </span>
+                    )}
+                    {saveStatus === "saved" && (
+                      <span className="text-emerald-400 flex items-center gap-1">
+                        <span>✓</span>
+                        Saved
+                      </span>
+                    )}
+                    {saveStatus === "error" && (
+                      <span className="text-red-400 flex items-center gap-1">
+                        <span>⚠️</span>
+                        Save error
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -416,11 +757,11 @@ export default function KitDetailPage() {
               </div>
             </div>
 
-            {/* MASTER-DETAIL GRID LAYOUT */}
+            {/* MASTER-DETAIL GRID */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* LEFT RAIL (4 Cols): Company Brief, Telemetry, Role Requirements */}
               <aside className="lg:col-span-4 space-y-5">
-                {/* Preparation Telemetry Pill Box */}
+                {/* Telemetry Box */}
                 <div className="grid grid-cols-3 gap-2 rounded-xl border border-zinc-800 bg-[#0f1117] p-3 shadow-sm text-center">
                   <div className="p-2 rounded bg-zinc-950/60">
                     <div className="text-base font-bold font-mono text-amber-400">
@@ -442,55 +783,99 @@ export default function KitDetailPage() {
                   </div>
                 </div>
 
-                {/* Company Intelligence Card */}
+                {/* Company Intelligence Card (With In-Place Edit & Regeneration) */}
                 <div className="rounded-xl border border-zinc-800 bg-[#0f1117] p-5 shadow-sm space-y-3">
                   <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2.5">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300">
-                      Company Intelligence
-                    </h3>
-                    {kit.source.company_url && (
-                      <a
-                        href={kit.source.company_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-[11px] font-mono text-amber-400 hover:underline flex items-center gap-1"
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300">
+                        Company Brief
+                      </h3>
+                      {renderStateBadge(kit.company_brief.state)}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setIsEditingBrief(!isEditingBrief)}
+                        className="text-[11px] font-mono text-zinc-400 hover:text-amber-400 transition-colors"
                       >
-                        Visit Site ↗
-                      </a>
-                    )}
+                        {isEditingBrief ? "Cancel" : "✎ Edit"}
+                      </button>
+
+                      <button
+                        disabled={regeneratingSection === "company_brief"}
+                        onClick={() => handleRegenerateSection("company_brief")}
+                        className="text-[11px] font-mono text-zinc-400 hover:text-amber-400 transition-colors disabled:opacity-40"
+                        title="Regenerate brief (preserves edited content)"
+                      >
+                        {regeneratingSection === "company_brief" ? "..." : "↻ Refresh"}
+                      </button>
+                    </div>
                   </div>
 
-                  <div>
-                    <h4 className="text-xs font-semibold text-zinc-200">What They Do</h4>
-                    <p className="mt-1 text-xs text-zinc-400 leading-relaxed">
-                      {kit.company_brief.what_they_do || "No public details found."}
-                    </p>
-                  </div>
-
-                  <div>
-                    <h4 className="text-xs font-semibold text-zinc-200">Mission & Context</h4>
-                    <p className="mt-1 text-xs text-zinc-400 leading-relaxed">
-                      {kit.company_brief.summary || "No public summary found."}
-                    </p>
-                  </div>
-
-                  {kit.source.pages_used.length > 0 && (
-                    <div className="pt-2">
-                      <span className="text-[11px] font-mono text-zinc-400 block mb-1">
-                        Verified Sources ({kit.source.pages_used.length}):
-                      </span>
-                      <div className="flex flex-wrap gap-1">
-                        {kit.source.pages_used.map((url, uidx) => (
-                          <span
-                            key={uidx}
-                            className="px-2 py-0.5 rounded bg-zinc-950 text-[10px] font-mono text-zinc-400 border border-zinc-800 truncate max-w-[240px]"
-                            title={url}
-                          >
-                            {url.replace(/^https?:\/\//, "")}
-                          </span>
-                        ))}
+                  {isEditingBrief ? (
+                    <div className="space-y-3 pt-1">
+                      <div>
+                        <label className="text-[11px] font-mono text-zinc-400 block mb-1">What They Do</label>
+                        <textarea
+                          rows={3}
+                          value={briefWhatTheyDoInput}
+                          onChange={(e) => setBriefWhatTheyDoInput(e.target.value)}
+                          className="w-full text-xs rounded border border-zinc-700 bg-zinc-950 p-2 text-zinc-100 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-mono text-zinc-400 block mb-1">Mission & Context</label>
+                        <textarea
+                          rows={3}
+                          value={briefSummaryInput}
+                          onChange={(e) => setBriefSummaryInput(e.target.value)}
+                          className="w-full text-xs rounded border border-zinc-700 bg-zinc-950 p-2 text-zinc-100 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={saveBriefEdits}
+                          className="px-3 py-1 rounded bg-amber-500 text-zinc-950 text-xs font-semibold hover:bg-amber-400"
+                        >
+                          Save Brief
+                        </button>
                       </div>
                     </div>
+                  ) : (
+                    <>
+                      <div>
+                        <h4 className="text-xs font-semibold text-zinc-200">What They Do</h4>
+                        <p className="mt-1 text-xs text-zinc-400 leading-relaxed">
+                          {kit.company_brief.what_they_do || "No public details found."}
+                        </p>
+                      </div>
+
+                      <div>
+                        <h4 className="text-xs font-semibold text-zinc-200">Mission & Context</h4>
+                        <p className="mt-1 text-xs text-zinc-400 leading-relaxed">
+                          {kit.company_brief.summary || "No public summary found."}
+                        </p>
+                      </div>
+
+                      {kit.source.pages_used.length > 0 && (
+                        <div className="pt-2">
+                          <span className="text-[11px] font-mono text-zinc-400 block mb-1">
+                            Verified Sources ({kit.source.pages_used.length}):
+                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {kit.source.pages_used.map((url, uidx) => (
+                              <span
+                                key={uidx}
+                                className="px-2 py-0.5 rounded bg-zinc-950 text-[10px] font-mono text-zinc-400 border border-zinc-800 truncate max-w-[240px]"
+                                title={url}
+                              >
+                                {url.replace(/^https?:\/\//, "")}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -501,7 +886,6 @@ export default function KitDetailPage() {
                       Requirements ({kit.role.requirements.length})
                     </h3>
 
-                    {/* Must vs Nice Filter */}
                     <div className="flex items-center gap-1">
                       {(["all", "must", "nice"] as const).map((mode) => (
                         <button
@@ -549,26 +933,9 @@ export default function KitDetailPage() {
                     ))}
                   </div>
                 </div>
-
-                {/* Responsibilities list if present */}
-                {kit.role.responsibilities && kit.role.responsibilities.length > 0 && (
-                  <div className="rounded-xl border border-zinc-800 bg-[#0f1117] p-5 shadow-sm space-y-2.5">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300 border-b border-zinc-800/80 pb-2">
-                      Core Responsibilities
-                    </h3>
-                    <ul className="space-y-1.5 text-xs text-zinc-300">
-                      {kit.role.responsibilities.map((resp, ridx) => (
-                        <li key={ridx} className="flex items-start gap-2">
-                          <span className="text-amber-400 mt-0.5">•</span>
-                          <span className="leading-normal">{resp}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
               </aside>
 
-              {/* RIGHT MAIN PANEL (8 Cols): Navigation Tabs & Active Interactive Views */}
+              {/* RIGHT MAIN PANEL (8 Cols): Navigation Tabs & Active Builder Views */}
               <div className="lg:col-span-8 space-y-5">
                 {/* Segmented Top Tab Bar */}
                 <div className="flex items-center gap-1 p-1 rounded-xl bg-[#0f1117] border border-zinc-800 shadow-sm overflow-x-auto">
@@ -624,13 +991,22 @@ export default function KitDetailPage() {
                 {/* TAB 1: DAILY SCHEDULE TIMELINE */}
                 {activeTab === "schedule" && (
                   <div className="rounded-xl border border-zinc-800 bg-[#0f1117] p-6 shadow-sm space-y-6">
-                    <div>
-                      <h2 className="text-base font-bold text-white">
-                        Adaptive Study Timeline
-                      </h2>
-                      <p className="text-xs text-zinc-400 mt-0.5">
-                        Pure arithmetic partition balancing foundational competencies and spaced repetition drills.
-                      </p>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+                      <div>
+                        <h2 className="text-base font-bold text-white">Adaptive Study Timeline</h2>
+                        <p className="text-xs text-zinc-400 mt-0.5">
+                          Partitioned study workload balancing foundational topics and spaced drills.
+                        </p>
+                      </div>
+
+                      <button
+                        disabled={regeneratingSection === "schedule"}
+                        onClick={() => handleRegenerateSection("schedule")}
+                        className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-xs font-medium text-amber-400 border border-zinc-700 flex items-center gap-1.5 transition-colors self-start sm:self-auto disabled:opacity-40"
+                      >
+                        <span>↻</span>
+                        <span>{regeneratingSection === "schedule" ? "Re-allocating..." : "Regenerate Schedule"}</span>
+                      </button>
                     </div>
 
                     {/* Day Selection Strip */}
@@ -661,7 +1037,7 @@ export default function KitDetailPage() {
                       ))}
                     </div>
 
-                    {/* Selected Day Expanded Detail */}
+                    {/* Selected Day Details */}
                     {(() => {
                       const currentDayData = kit.schedule.days.find((d) => d.day === selectedDay) || kit.schedule.days[0];
                       if (!currentDayData) return null;
@@ -674,66 +1050,67 @@ export default function KitDetailPage() {
                                 Day {currentDayData.day}: {currentDayData.focus}
                               </h3>
                               <span className="text-xs text-zinc-400">
-                                Target Study Duration: {currentDayData.minutes} minutes • {currentDayData.question_ids.length} core scenarios
+                                Target Duration: {currentDayData.minutes} minutes • {currentDayData.question_ids.length} core scenarios
                               </span>
                             </div>
                           </div>
 
                           <div className="space-y-3">
-                            {currentDayData.question_ids.map((qid, idx) => {
-                              const question = questionMap.get(qid);
-                              if (!question) {
+                            {currentDayData.question_ids.length === 0 ? (
+                              <div className="p-4 rounded-lg bg-zinc-950/40 text-xs text-zinc-500 text-center">
+                                No questions assigned to this day. Add questions or click "Regenerate Schedule".
+                              </div>
+                            ) : (
+                              currentDayData.question_ids.map((qid, idx) => {
+                                const question = questionMap.get(qid);
+                                if (!question) return null;
+
+                                const isExpanded = expandedQuestionIds.has(question.id);
+
                                 return (
-                                  <div key={idx} className="p-3 rounded-lg bg-zinc-950 text-xs text-zinc-400">
-                                    Question {qid}
+                                  <div
+                                    key={question.id}
+                                    className="rounded-lg border border-zinc-800 bg-zinc-950/80 p-4 transition-all hover:border-zinc-700/80 space-y-3"
+                                  >
+                                    <div className="flex items-start justify-between gap-4">
+                                      <div className="space-y-1.5 flex-1">
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-mono text-xs font-bold text-amber-400">
+                                            {question.id}
+                                          </span>
+                                          <span className="px-2 py-0.5 rounded text-[10px] font-mono capitalize bg-zinc-900 border border-zinc-800 text-zinc-300">
+                                            {question.category}
+                                          </span>
+                                          {renderDifficulty(question.difficulty)}
+                                          {renderStateBadge(question.state)}
+                                        </div>
+                                        <h4 className="text-sm font-semibold text-zinc-100 leading-snug">
+                                          {question.prompt}
+                                        </h4>
+                                      </div>
+
+                                      <button
+                                        onClick={() => toggleQuestionOutline(question.id)}
+                                        className="px-2.5 py-1 text-xs rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 transition-colors whitespace-nowrap"
+                                      >
+                                        {isExpanded ? "Hide Answer" : "View Answer"}
+                                      </button>
+                                    </div>
+
+                                    {isExpanded && (
+                                      <div className="pt-2 border-t border-zinc-900 text-xs text-zinc-300 space-y-2 bg-zinc-900/40 -mx-4 -mb-4 p-4 rounded-b-lg">
+                                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 font-mono block">
+                                          Strategic Answer Outline & Key Points:
+                                        </span>
+                                        <p className="leading-relaxed whitespace-pre-line text-zinc-300 font-sans">
+                                          {question.answer_outline}
+                                        </p>
+                                      </div>
+                                    )}
                                   </div>
                                 );
-                              }
-
-                              const isExpanded = expandedQuestionIds.has(question.id);
-
-                              return (
-                                <div
-                                  key={question.id}
-                                  className="rounded-lg border border-zinc-800 bg-zinc-950/80 p-4 transition-all hover:border-zinc-700/80 space-y-3"
-                                >
-                                  <div className="flex items-start justify-between gap-4">
-                                    <div className="space-y-1.5 flex-1">
-                                      <div className="flex items-center gap-2">
-                                        <span className="font-mono text-xs font-bold text-amber-400">
-                                          {question.id}
-                                        </span>
-                                        <span className="px-2 py-0.5 rounded text-[10px] font-mono capitalize bg-zinc-900 border border-zinc-800 text-zinc-300">
-                                          {question.category}
-                                        </span>
-                                        {renderDifficulty(question.difficulty)}
-                                      </div>
-                                      <h4 className="text-sm font-semibold text-zinc-100 leading-snug">
-                                        {question.prompt}
-                                      </h4>
-                                    </div>
-
-                                    <button
-                                      onClick={() => toggleQuestionOutline(question.id)}
-                                      className="px-2.5 py-1 text-xs rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 transition-colors whitespace-nowrap"
-                                    >
-                                      {isExpanded ? "Hide Answer" : "View Answer"}
-                                    </button>
-                                  </div>
-
-                                  {isExpanded && (
-                                    <div className="pt-2 border-t border-zinc-900 text-xs text-zinc-300 space-y-2 bg-zinc-900/40 -mx-4 -mb-4 p-4 rounded-b-lg">
-                                      <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 font-mono block">
-                                        Strategic Answer Outline & Key Points:
-                                      </span>
-                                      <p className="leading-relaxed whitespace-pre-line text-zinc-300 font-sans">
-                                        {question.answer_outline}
-                                      </p>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
+                              })
+                            )}
                           </div>
                         </div>
                       );
@@ -741,90 +1118,310 @@ export default function KitDetailPage() {
                   </div>
                 )}
 
-                {/* TAB 2: QUESTION BANK */}
+                {/* TAB 2: QUESTION BANK BUILDER (EDIT, REORDER, ADD, REGENERATE) */}
                 {activeTab === "questions" && (
                   <div className="rounded-xl border border-zinc-800 bg-[#0f1117] p-6 shadow-sm space-y-5">
+                    {/* Header with Category Filter & Actions */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
                       <div>
                         <h2 className="text-base font-bold text-white">
-                          Targeted Question Bank ({filteredQuestions.length})
+                          Question Bank Builder ({filteredQuestions.length})
                         </h2>
                         <p className="text-xs text-zinc-400 mt-0.5">
-                          Grounded in extracted must/nice requirements and company interview rounds.
+                          Edit prompts in-place, reorder items, move categories, and author custom questions.
                         </p>
                       </div>
 
-                      {/* Category Filter Pills */}
-                      <div className="flex flex-wrap gap-1">
-                        {(["all", "technical", "behavioural", "system-design", "company-fit"] as const).map(
-                          (cat) => (
-                            <button
-                              key={cat}
-                              onClick={() => setQuestionCategoryFilter(cat)}
-                              className={`px-2.5 py-1 rounded text-xs font-mono capitalize transition-all ${
-                                questionCategoryFilter === cat
-                                  ? "bg-amber-500/15 border border-amber-500/40 text-amber-400 font-semibold"
-                                  : "bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-zinc-200"
-                              }`}
-                            >
-                              {cat.replace("-", " ")}
-                            </button>
-                          )
+                      <div className="flex items-center gap-2">
+                        {/* Sectional regeneration action for current category */}
+                        {questionCategoryFilter !== "all" && (
+                          <button
+                            disabled={regeneratingSection === `category_${questionCategoryFilter}`}
+                            onClick={() => handleRegenerateSection("category", questionCategoryFilter)}
+                            className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-xs font-medium text-amber-400 border border-zinc-700 flex items-center gap-1.5 transition-colors disabled:opacity-40"
+                            title="Regenerates AI questions in this category while strictly preserving edited & pinned items"
+                          >
+                            <span>↻</span>
+                            <span>
+                              {regeneratingSection === `category_${questionCategoryFilter}`
+                                ? "Regenerating..."
+                                : `Regenerate ${questionCategoryFilter.replace("-", " ")}`}
+                            </span>
+                          </button>
                         )}
+
+                        <button
+                          onClick={() => setIsAddingQuestion(!isAddingQuestion)}
+                          className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-xs font-semibold text-zinc-950 transition-colors shadow-sm"
+                        >
+                          {isAddingQuestion ? "Cancel" : "+ Add Question"}
+                        </button>
                       </div>
                     </div>
 
+                    {/* Category Filter Pills */}
+                    <div className="flex flex-wrap gap-1">
+                      {(["all", "technical", "behavioural", "system-design", "company-fit"] as const).map(
+                        (cat) => (
+                          <button
+                            key={cat}
+                            onClick={() => setQuestionCategoryFilter(cat)}
+                            className={`px-2.5 py-1 rounded text-xs font-mono capitalize transition-all ${
+                              questionCategoryFilter === cat
+                                ? "bg-amber-500/15 border border-amber-500/40 text-amber-400 font-semibold"
+                                : "bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-zinc-200"
+                            }`}
+                          >
+                            {cat.replace("-", " ")}
+                          </button>
+                        )
+                      )}
+                    </div>
+
+                    {/* Add Question Card Form */}
+                    {isAddingQuestion && (
+                      <form
+                        onSubmit={handleAddQuestionSubmit}
+                        className="rounded-xl border border-amber-500/40 bg-zinc-950 p-5 space-y-4 shadow-md"
+                      >
+                        <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                            Author Custom Question (Pinned by default)
+                          </span>
+                          <span className="text-[11px] font-mono text-zinc-400">
+                            State: pinned (protected)
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-xs font-mono text-zinc-400 block mb-1">Category</label>
+                            <select
+                              value={newQuestionCategory}
+                              onChange={(e) => setNewQuestionCategory(e.target.value as QuestionCategory)}
+                              className="w-full text-xs rounded border border-zinc-700 bg-zinc-900 p-2 text-zinc-100 focus:outline-none focus:border-amber-500"
+                            >
+                              <option value="technical">Technical</option>
+                              <option value="behavioural">Behavioural</option>
+                              <option value="system-design">System Design</option>
+                              <option value="company-fit">Company Fit</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-mono text-zinc-400 block mb-1">Difficulty</label>
+                            <select
+                              value={newQuestionDifficulty}
+                              onChange={(e) => setNewQuestionDifficulty(Number(e.target.value) as DifficultyLevel)}
+                              className="w-full text-xs rounded border border-zinc-700 bg-zinc-900 p-2 text-zinc-100 focus:outline-none focus:border-amber-500"
+                            >
+                              <option value={1}>Level 1 (Foundational)</option>
+                              <option value={2}>Level 2 (Intermediate)</option>
+                              <option value={3}>Level 3 (Advanced / Principal)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-mono text-zinc-400 block mb-1">Question Prompt</label>
+                          <textarea
+                            rows={2}
+                            required
+                            value={newQuestionPrompt}
+                            onChange={(e) => setNewQuestionPrompt(e.target.value)}
+                            placeholder="Enter the scenario or interview question..."
+                            className="w-full text-xs rounded border border-zinc-700 bg-zinc-900 p-2 text-zinc-100 focus:outline-none focus:border-amber-500 font-sans"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-xs font-mono text-zinc-400 block mb-1">Strategic Answer Outline</label>
+                          <textarea
+                            rows={3}
+                            value={newQuestionAnswer}
+                            onChange={(e) => setNewQuestionAnswer(e.target.value)}
+                            placeholder="Key concepts, STAR framework, trade-offs to mention..."
+                            className="w-full text-xs rounded border border-zinc-700 bg-zinc-900 p-2 text-zinc-100 focus:outline-none focus:border-amber-500 font-sans"
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setIsAddingQuestion(false)}
+                            className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            className="px-4 py-1.5 rounded bg-amber-500 text-zinc-950 font-semibold text-xs hover:bg-amber-400"
+                          >
+                            Save Pinned Question
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
                     {/* Question Cards List */}
-                    <div className="space-y-3.5">
+                    <div className="space-y-4">
                       {filteredQuestions.map((q) => {
                         const isExpanded = expandedQuestionIds.has(q.id);
+                        const isEditingThis = editingQuestionId === q.id;
 
                         return (
                           <div
                             key={q.id}
                             className="rounded-xl border border-zinc-800 bg-zinc-950/80 p-4 transition-all hover:border-zinc-700/80 space-y-3"
                           >
-                            <div className="flex items-start justify-between gap-4">
-                              <div className="space-y-1.5 flex-1">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <span className="font-mono text-xs font-bold text-amber-400">
-                                    {q.id}
-                                  </span>
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-mono capitalize bg-zinc-900 border border-zinc-800 text-zinc-300">
-                                    {q.category}
-                                  </span>
-                                  {renderDifficulty(q.difficulty)}
-                                  {q.requirement_ids.map((rid) => (
-                                    <span
-                                      key={rid}
-                                      className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-900 text-zinc-400 border border-zinc-800"
-                                    >
-                                      req:{rid}
-                                    </span>
-                                  ))}
-                                </div>
+                            {/* Card Header Toolbar */}
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-900 pb-2.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-xs font-bold text-amber-400">{q.id}</span>
+                                {renderStateBadge(q.state)}
 
+                                {/* Category Changer Dropdown */}
+                                <select
+                                  value={q.category}
+                                  onChange={(e) =>
+                                    updateQuestion(q.id, { category: e.target.value as QuestionCategory })
+                                  }
+                                  className="text-[10px] font-mono capitalize rounded bg-zinc-900 border border-zinc-800 text-zinc-300 px-1.5 py-0.5 focus:outline-none"
+                                >
+                                  <option value="technical">Technical</option>
+                                  <option value="behavioural">Behavioural</option>
+                                  <option value="system-design">System Design</option>
+                                  <option value="company-fit">Company Fit</option>
+                                </select>
+
+                                {/* Difficulty changer */}
+                                <select
+                                  value={q.difficulty}
+                                  onChange={(e) =>
+                                    updateQuestion(q.id, { difficulty: Number(e.target.value) as DifficultyLevel })
+                                  }
+                                  className="text-[10px] font-mono rounded bg-zinc-900 border border-zinc-800 text-zinc-300 px-1.5 py-0.5 focus:outline-none"
+                                >
+                                  <option value={1}>L1</option>
+                                  <option value={2}>L2</option>
+                                  <option value={3}>L3</option>
+                                </select>
+                              </div>
+
+                              {/* Reorder and State Action Controls */}
+                              <div className="flex items-center gap-1.5">
+                                {/* Up / Down Reorder */}
+                                <button
+                                  onClick={() => moveQuestion(q.id, "up")}
+                                  className="p-1 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 text-[10px]"
+                                  title="Move Up"
+                                >
+                                  ▲
+                                </button>
+                                <button
+                                  onClick={() => moveQuestion(q.id, "down")}
+                                  className="p-1 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800 text-[10px]"
+                                  title="Move Down"
+                                >
+                                  ▼
+                                </button>
+
+                                {/* Pin toggle */}
+                                <button
+                                  onClick={() => toggleQuestionPin(q.id)}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-mono transition-colors ${
+                                    q.state === "pinned"
+                                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold"
+                                      : "bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-zinc-800"
+                                  }`}
+                                  title="Pin to protect from regeneration"
+                                >
+                                  {q.state === "pinned" ? "📌 Pinned" : "Pin"}
+                                </button>
+
+                                {/* Inline Edit toggle */}
+                                <button
+                                  onClick={() =>
+                                    setEditingQuestionId(isEditingThis ? null : q.id)
+                                  }
+                                  className="px-2 py-0.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 text-[10px] font-mono"
+                                >
+                                  {isEditingThis ? "Done" : "✎ Edit"}
+                                </button>
+
+                                {/* Delete */}
+                                <button
+                                  onClick={() => deleteQuestion(q.id)}
+                                  className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                  title="Delete Question"
+                                >
+                                  🗑
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* In-place Editable Body vs Static View */}
+                            {isEditingThis ? (
+                              <div className="space-y-3 pt-1">
+                                <div>
+                                  <label className="text-[10px] font-mono text-zinc-400 uppercase block mb-1">
+                                    Question Prompt
+                                  </label>
+                                  <textarea
+                                    rows={2}
+                                    value={q.prompt}
+                                    onChange={(e) => updateQuestion(q.id, { prompt: e.target.value })}
+                                    className="w-full text-xs rounded border border-zinc-700 bg-zinc-900 p-2 text-zinc-100 focus:outline-none focus:border-amber-500 font-sans"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-mono text-zinc-400 uppercase block mb-1">
+                                    Strategic Answer Outline
+                                  </label>
+                                  <textarea
+                                    rows={3}
+                                    value={q.answer_outline}
+                                    onChange={(e) => updateQuestion(q.id, { answer_outline: e.target.value })}
+                                    className="w-full text-xs rounded border border-zinc-700 bg-zinc-900 p-2 text-zinc-100 focus:outline-none focus:border-amber-500 font-sans"
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <div>
                                 <h3 className="text-sm font-semibold text-zinc-100 leading-snug">
                                   {q.prompt}
                                 </h3>
-                              </div>
 
-                              <button
-                                onClick={() => toggleQuestionOutline(q.id)}
-                                className="px-2.5 py-1 text-xs rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800 transition-colors whitespace-nowrap"
-                              >
-                                {isExpanded ? "Hide Outline" : "View Outline"}
-                              </button>
-                            </div>
+                                <div className="mt-3 flex items-center justify-between">
+                                  <div className="flex gap-1">
+                                    {q.requirement_ids.map((rid) => (
+                                      <span
+                                        key={rid}
+                                        className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-zinc-900 text-zinc-400 border border-zinc-800"
+                                      >
+                                        req:{rid}
+                                      </span>
+                                    ))}
+                                  </div>
 
-                            {isExpanded && (
-                              <div className="pt-2 border-t border-zinc-900 text-xs text-zinc-300 space-y-2 bg-zinc-900/40 -mx-4 -mb-4 p-4 rounded-b-xl">
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 font-mono block">
-                                  Answer Outline & Evaluation Rubric:
-                                </span>
-                                <p className="leading-relaxed whitespace-pre-line text-zinc-300 font-sans">
-                                  {q.answer_outline}
-                                </p>
+                                  <button
+                                    onClick={() => toggleQuestionOutline(q.id)}
+                                    className="text-xs text-zinc-400 hover:text-amber-400 transition-colors font-mono"
+                                  >
+                                    {isExpanded ? "Hide Answer ▲" : "View Answer ▼"}
+                                  </button>
+                                </div>
+
+                                {isExpanded && (
+                                  <div className="mt-3 pt-3 border-t border-zinc-900 text-xs text-zinc-300 space-y-1.5 bg-zinc-900/40 -mx-4 -mb-4 p-4 rounded-b-xl">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 font-mono block">
+                                      Strategic Answer Outline:
+                                    </span>
+                                    <p className="leading-relaxed whitespace-pre-line text-zinc-300 font-sans">
+                                      {q.answer_outline}
+                                    </p>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -834,14 +1431,16 @@ export default function KitDetailPage() {
                   </div>
                 )}
 
-                {/* TAB 3: INTERACTIVE FLASHCARDS */}
+                {/* TAB 3: FLASHCARDS BUILDER */}
                 {activeTab === "flashcards" && (
                   <div className="rounded-xl border border-zinc-800 bg-[#0f1117] p-6 shadow-sm space-y-6">
                     <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4">
                       <div>
-                        <h2 className="text-base font-bold text-white">Spaced Repetition Flashcards</h2>
+                        <h2 className="text-base font-bold text-white">
+                          Flashcard Builder ({kit.flashcards.length})
+                        </h2>
                         <p className="text-xs text-zinc-400 mt-0.5">
-                          High-yield active recall cards for rapid pre-interview drilling.
+                          Edit cards in place, add custom drilling cards, or review via interactive deck.
                         </p>
                       </div>
 
@@ -854,7 +1453,7 @@ export default function KitDetailPage() {
                               : "text-zinc-400 hover:text-zinc-200"
                           }`}
                         >
-                          Deck View
+                          Deck
                         </button>
                         <button
                           onClick={() => setFlashcardViewMode("grid")}
@@ -866,15 +1465,72 @@ export default function KitDetailPage() {
                         >
                           All Cards
                         </button>
+                        <button
+                          onClick={() => setIsAddingFlashcard(!isAddingFlashcard)}
+                          className="px-3 py-1 rounded bg-amber-500 text-zinc-950 text-xs font-semibold hover:bg-amber-400 transition-colors"
+                        >
+                          {isAddingFlashcard ? "Cancel" : "+ Add Card"}
+                        </button>
                       </div>
                     </div>
 
+                    {/* Add Custom Flashcard Form */}
+                    {isAddingFlashcard && (
+                      <form
+                        onSubmit={handleAddFlashcardSubmit}
+                        className="rounded-xl border border-amber-500/40 bg-zinc-950 p-4 space-y-3"
+                      >
+                        <span className="text-xs font-bold uppercase tracking-wider text-amber-400 block">
+                          Add Custom Flashcard (Pinned)
+                        </span>
+                        <div>
+                          <label className="text-[10px] font-mono text-zinc-400 uppercase block mb-1">
+                            Front (Prompt / Scenario)
+                          </label>
+                          <textarea
+                            rows={2}
+                            required
+                            value={newCardFront}
+                            onChange={(e) => setNewCardFront(e.target.value)}
+                            className="w-full text-xs rounded border border-zinc-700 bg-zinc-900 p-2 text-zinc-100 focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-mono text-zinc-400 uppercase block mb-1">
+                            Back (Takeaway / Answer)
+                          </label>
+                          <textarea
+                            rows={2}
+                            required
+                            value={newCardBack}
+                            onChange={(e) => setNewCardBack(e.target.value)}
+                            className="w-full text-xs rounded border border-zinc-700 bg-zinc-900 p-2 text-zinc-100 focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setIsAddingFlashcard(false)}
+                            className="px-3 py-1 text-xs text-zinc-400"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            className="px-3 py-1 rounded bg-amber-500 text-zinc-950 text-xs font-semibold hover:bg-amber-400"
+                          >
+                            Save Card
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
                     {kit.flashcards.length === 0 ? (
                       <div className="py-12 text-center text-xs text-zinc-400">
-                        No flashcards generated for this kit.
+                        No flashcards available. Add custom cards above.
                       </div>
                     ) : flashcardViewMode === "deck" ? (
-                      /* 3D INTERACTIVE DECK FLIP CARD */
+                      /* DECK VIEW */
                       <div className="space-y-4">
                         <div className="flex items-center justify-between text-xs text-zinc-400 font-mono">
                           <span>
@@ -885,7 +1541,6 @@ export default function KitDetailPage() {
                           </span>
                         </div>
 
-                        {/* Flashcard container */}
                         <div
                           onClick={() => setIsFlipped(!isFlipped)}
                           className={`cursor-pointer min-h-[220px] sm:min-h-[260px] rounded-2xl border p-8 flex flex-col justify-between transition-all duration-300 transform select-none ${
@@ -895,9 +1550,12 @@ export default function KitDetailPage() {
                           }`}
                         >
                           <div className="flex items-center justify-between text-xs font-mono">
-                            <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
-                              {kit.flashcards[flashcardIndex].id}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
+                                {kit.flashcards[flashcardIndex].id}
+                              </span>
+                              {renderStateBadge(kit.flashcards[flashcardIndex].state)}
+                            </div>
                             <span className="text-xs uppercase font-bold tracking-wider text-amber-400">
                               {isFlipped ? "Answer / Takeaway" : "Prompt / Question"}
                             </span>
@@ -921,7 +1579,7 @@ export default function KitDetailPage() {
                           </div>
                         </div>
 
-                        {/* Controls bar */}
+                        {/* Controls */}
                         <div className="flex items-center justify-between pt-2">
                           <button
                             onClick={prevCard}
@@ -956,33 +1614,86 @@ export default function KitDetailPage() {
                         </div>
                       </div>
                     ) : (
-                      /* GRID VIEW ALL CARDS */
+                      /* GRID VIEW WITH INLINE EDIT & DELETE */
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {kit.flashcards.map((card) => (
-                          <div
-                            key={card.id}
-                            className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 space-y-3"
-                          >
-                            <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400">
-                              <span>{card.id}</span>
-                              <span className="text-amber-400">
-                                {card.requirement_ids.join(", ")}
-                              </span>
+                        {kit.flashcards.map((card) => {
+                          const isEditingCard = editingFlashcardId === card.id;
+
+                          return (
+                            <div
+                              key={card.id}
+                              className="rounded-xl border border-zinc-800 bg-zinc-950 p-4 space-y-3"
+                            >
+                              <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400 border-b border-zinc-900 pb-2">
+                                <div className="flex items-center gap-2">
+                                  <span>{card.id}</span>
+                                  {renderStateBadge(card.state)}
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() =>
+                                      setEditingFlashcardId(isEditingCard ? null : card.id)
+                                    }
+                                    className="px-2 py-0.5 rounded bg-zinc-900 text-zinc-300 hover:text-white"
+                                  >
+                                    {isEditingCard ? "Cancel" : "✎ Edit"}
+                                  </button>
+                                  <button
+                                    onClick={() => deleteFlashcard(card.id)}
+                                    className="p-1 text-zinc-500 hover:text-red-400"
+                                  >
+                                    🗑
+                                  </button>
+                                </div>
+                              </div>
+
+                              {isEditingCard ? (
+                                <div className="space-y-2">
+                                  <input
+                                    type="text"
+                                    defaultValue={card.front}
+                                    id={`front_${card.id}`}
+                                    className="w-full text-xs rounded border border-zinc-700 bg-zinc-900 p-1.5 text-zinc-100"
+                                  />
+                                  <textarea
+                                    rows={2}
+                                    defaultValue={card.back}
+                                    id={`back_${card.id}`}
+                                    className="w-full text-xs rounded border border-zinc-700 bg-zinc-900 p-1.5 text-zinc-100"
+                                  />
+                                  <div className="flex justify-end">
+                                    <button
+                                      onClick={() => {
+                                        const f = (document.getElementById(`front_${card.id}`) as HTMLInputElement)?.value;
+                                        const b = (document.getElementById(`back_${card.id}`) as HTMLTextAreaElement)?.value;
+                                        if (f && b) updateFlashcard(card.id, f, b);
+                                      }}
+                                      className="px-3 py-1 rounded bg-amber-500 text-zinc-950 text-xs font-semibold"
+                                    >
+                                      Save
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <div>
+                                    <span className="text-[10px] uppercase tracking-wider font-mono text-zinc-400 block mb-1">
+                                      Prompt:
+                                    </span>
+                                    <p className="text-xs font-semibold text-zinc-100">{card.front}</p>
+                                  </div>
+                                  <div className="pt-2 border-t border-zinc-900">
+                                    <span className="text-[10px] uppercase tracking-wider font-mono text-amber-400 block mb-1">
+                                      Answer:
+                                    </span>
+                                    <p className="text-xs text-zinc-300">{card.back}</p>
+                                  </div>
+                                </>
+                              )}
                             </div>
-                            <div>
-                              <span className="text-[10px] uppercase tracking-wider font-mono text-zinc-400 block mb-1">
-                                Prompt:
-                              </span>
-                              <p className="text-xs font-semibold text-zinc-100">{card.front}</p>
-                            </div>
-                            <div className="pt-2 border-t border-zinc-900">
-                              <span className="text-[10px] uppercase tracking-wider font-mono text-amber-400 block mb-1">
-                                Answer:
-                              </span>
-                              <p className="text-xs text-zinc-300">{card.back}</p>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -1012,14 +1723,13 @@ export default function KitDetailPage() {
                         </span>
                       </div>
                       <div className="p-4 rounded-xl bg-zinc-950/80 border border-zinc-800">
-                        <span className="text-xs text-zinc-400 block">Uncovered Must-Haves</span>
+                        <span className="text-xs text-zinc-400 block">Uncovered Requirements</span>
                         <span className="text-xl font-bold font-mono text-emerald-400 mt-1 block">
-                          0
+                          {kit.coverage.uncovered_requirement_ids.length}
                         </span>
                       </div>
                     </div>
 
-                    {/* Coverage Items Table */}
                     <div className="space-y-2 pt-2">
                       <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300">
                         Requirement-to-Question Mapping
@@ -1070,7 +1780,7 @@ export default function KitDetailPage() {
                                   </div>
                                 ) : (
                                   <span className="text-[10px] font-mono text-amber-400">
-                                    Remaining nice gap
+                                    Uncovered Gap
                                   </span>
                                 )}
                               </div>

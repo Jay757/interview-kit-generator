@@ -229,6 +229,41 @@ This document tracks technical decisions, trade-offs, and heuristics chosen thro
 - **Decision**: On `/kits/:id`, used a 2-column responsive layout (Left: Company intelligence, role breakdown, requirement checklist; Right: Interactive tab bar for Schedule, Questions, Flashcards, and Coverage).
 - **Reasoning**: Eliminates vertical scrolling fatigue and makes studying intuitive, with full keyboard accessibility (Arrow keys and Spacebar for flashcards, clean focus rings).
 
+---
+
+## 2026-09-10: Phase 11 Decisions — The Builder: Edit, Reorder, Regenerate Without Clobbering
+
+### Tri-State Item Preservation Model (`generated` | `edited` | `pinned`)
+- **Decision**: Every mutable item in the prep kit (`company_brief`, `questions`, `flashcards`, `requirements`) carries a persistent `state` tag:
+  - `"generated"`: Authored by initial LLM pipeline. Subject to replacement during targeted regeneration of its section.
+  - `"edited"`: An item initially generated, but modified by the user (inline text edits, category moves, difficulty adjustments). **Strictly immune to regeneration.**
+  - `"pinned"`: Manually authored by the user (via "+ Add Question" / "+ Add Flashcard") or explicitly pinned to protect it. **Strictly immune to regeneration.**
+- **Reasoning**: Strictly obeys Hard Constraint Rule 9 ("State preservation: regeneration never clobbers items marked edited or pinned").
+
+### Cascading Deletion & Referential Integrity
+- **Decision**: When a question `qX` is deleted:
+  1. It is removed from `kit.questions`.
+  2. It is cascade-removed from all `schedule.days[].question_ids` arrays.
+  3. `kit.coverage.uncovered_requirement_ids` is recomputed: if `qX` was the sole question covering requirement `rY`, `rY` is immediately flagged as uncovered.
+- **Reasoning**: Eliminates dangling ID references, maintaining 100% referential integrity per Phase 3 `validateKit` superRefine checks.
+
+### Reordering & Inter-Category Moving
+- **Decision**: Users can reorder questions within a category and move questions between categories (e.g. Technical -> System Design) via intuitive reorder controls.
+- **Reasoning**: Provides tactile builder control without forcing complex third-party drag-and-drop DOM dependencies that could cause hydration mismatches in Next.js.
+
+### Server-Side Sectional Regeneration (`POST /kits/:id/regenerate`)
+- **Decision**: Implemented server-side regeneration route accepting `{ target: "company_brief" | "schedule" | { type: "category", category: QuestionCategory } }`.
+  1. Fetches current kit.
+  2. For a question category: partitions into `preserved` (`edited`/`pinned`) vs `replaceable` (`generated`).
+  3. Identifies requirements mapped to `replaceable` questions and only calls LLM generation for those missing requirements.
+  4. Merges `[...preserved, ...generatedReplacements]`.
+  5. Re-runs deterministic coverage check and updates schedule.
+- **Reasoning**: Server-side enforcement ensures regeneration never accidentally clobbers edited items even if client state is stale.
+
+### Immediate Autosave UX (`PATCH /kits/:id`)
+- **Decision**: Edits are persisted via a debounced (600ms) `PATCH /kits/:id` endpoint with last-write-wins concurrency semantics. A persistent status indicator (`● Saving...` -> `✓ Saved`) gives users immediate feedback.
+
+
 
 
 
