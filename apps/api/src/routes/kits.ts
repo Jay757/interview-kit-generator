@@ -91,39 +91,218 @@ router.post("/preview-extraction", async (req: Request, res: Response) => {
   }
 });
 
-// POST /kits - Dev / stub persistence endpoint validating against Appendix A shape
+import crypto from "crypto";
+import { generateKit } from "../pipeline/orchestrate.js";
+
+/**
+ * Computes an idempotency hash for a kit generation request.
+ */
+export function computeGenerationHash(
+  userId: string,
+  jd: string,
+  companyUrl?: string | null,
+  days: number = 5
+): string {
+  const normJd = jd.trim().replace(/\r\n/g, "\n");
+  const normUrl = (companyUrl || "").trim().toLowerCase();
+  const normDays = days >= 1 ? Math.floor(days) : 5;
+  return crypto
+    .createHash("sha256")
+    .update(`${userId}:::${normJd}:::${normUrl}:::${normDays}`)
+    .digest("hex");
+}
+
+// POST /kits - Async kit generation endpoint with deduplication
 router.post("/", async (req: Request, res: Response) => {
   try {
-    const validation = validateKit(req.body);
+    const { jd, jdText, companyUrl, days } = req.body;
+    const rawJd = jd || jdText;
 
-    if (!validation.success) {
+    // 1. If an Appendix A kit structure is submitted (or attempted)
+    const isKitStructureSubmission =
+      req.body.source !== undefined ||
+      req.body.role !== undefined ||
+      req.body.questions !== undefined ||
+      req.body.company_brief !== undefined;
+
+    if (isKitStructureSubmission) {
+      const validation = validateKit(req.body);
+      if (!validation.success) {
+        res.status(400).json({
+          error: {
+            code: "INVALID_KIT_STRUCTURE",
+            message: "The provided kit object violates Appendix A specifications.",
+            details: validation.errors,
+          },
+        });
+        return;
+      }
+
+      const kit = new Kit({
+        ...validation.data,
+        ownerId: req.session.userId,
+        status: "completed",
+        progressStage: "completed",
+      });
+
+      await kit.save();
+      res.status(201).json({ kit });
+      return;
+    }
+
+    // 2. Validate JD input for generation
+    if (!rawJd || typeof rawJd !== "string" || !rawJd.trim()) {
       res.status(400).json({
         error: {
-          code: "INVALID_KIT_STRUCTURE",
-          message: "The provided kit object violates Appendix A specifications.",
-          details: validation.errors,
+          code: "BAD_REQUEST",
+          message: "A non-empty job description string ('jd') is required to generate a kit.",
         },
       });
       return;
     }
 
-    const kit = new Kit({
-      ...validation.data,
+    const trimmedJd = rawJd.trim();
+    const daysAvailable =
+      typeof days === "number" && days >= 1 ? Math.floor(days) : 5;
+    const cleanCompanyUrl =
+      typeof companyUrl === "string" && companyUrl.trim() ? companyUrl.trim() : "";
+
+    // 3. Idempotency check (15-minute window to avoid double-spending LLM tokens)
+    const hash = computeGenerationHash(
+      req.session.userId!,
+      trimmedJd,
+      cleanCompanyUrl,
+      daysAvailable
+    );
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+
+    const existingKit = await Kit.findOne({
       ownerId: req.session.userId,
-      status: "completed",
+      generationHash: hash,
+      createdAt: { $gte: fifteenMinutesAgo },
+      status: { $in: ["generating", "completed"] },
+    });
+
+    if (existingKit) {
+      if (existingKit.status === "generating") {
+        res.status(202).json({
+          message: "Kit generation already in progress for this job description.",
+          kitId: existingKit._id,
+          status: "generating",
+          isDuplicate: true,
+        });
+        return;
+      }
+
+      if (existingKit.status === "completed") {
+        res.status(200).json({
+          message: "Kit already generated recently. Returning existing kit.",
+          kitId: existingKit._id,
+          status: "completed",
+          kit: existingKit,
+          isDuplicate: true,
+        });
+        return;
+      }
+    }
+
+    // 4. Create initial generating Kit record
+    const kit = new Kit({
+      ownerId: req.session.userId,
+      status: "generating",
+      generationHash: hash,
+      progressStage: "retrieving",
+      source: {
+        company: "",
+        company_url: cleanCompanyUrl,
+        role: "",
+        location: "",
+        jd_chars: trimmedJd.length,
+        researched_at: new Date().toISOString(),
+        pages_used: [],
+      },
+      company_brief: {
+        summary: "",
+        what_they_do: "",
+        sources: [],
+      },
+      role: {
+        title: "",
+        seniority: "",
+        responsibilities: [],
+        requirements: [],
+      },
+      questions: [],
+      flashcards: [],
+      schedule: {
+        days_available: daysAvailable,
+        days: [],
+      },
+      coverage: {
+        uncovered_requirement_ids: [],
+        passes: 0,
+      },
     });
 
     await kit.save();
 
-    res.status(201).json({
-      kit,
+    // 5. Return 202 immediately to unblock client
+    res.status(202).json({
+      message: "Kit generation started.",
+      kitId: kit._id,
+      status: "generating",
     });
+
+    // 6. Execute background pipeline without blocking HTTP response
+    (async () => {
+      try {
+        const generated = await generateKit({
+          jd: trimmedJd,
+          companyUrl: cleanCompanyUrl,
+          days: daysAvailable,
+          options: {
+            onProgress: async (stage) => {
+              try {
+                await Kit.updateOne({ _id: kit._id }, { progressStage: stage });
+              } catch {
+                // Ignore transient progress write errors
+              }
+            },
+          },
+        });
+
+        await Kit.updateOne(
+          { _id: kit._id },
+          {
+            status: "completed",
+            progressStage: "completed",
+            source: generated.source,
+            company_brief: generated.company_brief,
+            role: generated.role,
+            questions: generated.questions,
+            flashcards: generated.flashcards,
+            schedule: generated.schedule,
+            coverage: generated.coverage,
+            errorMessage: null,
+          }
+        );
+      } catch (err: any) {
+        console.error(`Background kit generation failed for kit ${kit._id}:`, err);
+        await Kit.updateOne(
+          { _id: kit._id },
+          {
+            status: "failed",
+            errorMessage: err.message || "Kit generation failed.",
+          }
+        ).catch(() => {});
+      }
+    })();
   } catch (error: any) {
     console.error("Kit creation error:", error);
     res.status(500).json({
       error: {
         code: "INTERNAL_ERROR",
-        message: "An error occurred while creating the kit.",
+        message: "An error occurred while initiating kit creation.",
       },
     });
   }
@@ -145,6 +324,65 @@ router.get("/", async (req: Request, res: Response) => {
       error: {
         code: "INTERNAL_ERROR",
         message: "An error occurred while fetching your kits.",
+      },
+    });
+  }
+});
+
+// GET /kits/:id/status - Polling endpoint for generation status & progress stage
+router.get("/:id/status", async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({
+        error: {
+          code: "NOT_FOUND",
+          message: "Kit not found.",
+        },
+      });
+      return;
+    }
+
+    const kit = await Kit.findById(id).select(
+      "_id ownerId status progressStage errorMessage createdAt updatedAt"
+    );
+
+    if (!kit) {
+      res.status(404).json({
+        error: {
+          code: "NOT_FOUND",
+          message: "Kit not found.",
+        },
+      });
+      return;
+    }
+
+    // Owner authorization check
+    if (kit.ownerId.toString() !== req.session.userId) {
+      res.status(403).json({
+        error: {
+          code: "FORBIDDEN",
+          message: "You do not have permission to access this kit.",
+        },
+      });
+      return;
+    }
+
+    res.status(200).json({
+      kitId: kit._id,
+      status: kit.status,
+      stage: kit.progressStage || "starting",
+      errorMessage: kit.errorMessage,
+      updatedAt: kit.updatedAt,
+      createdAt: kit.createdAt,
+    });
+  } catch (error: any) {
+    console.error("Kit status polling error:", error);
+    res.status(500).json({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "An error occurred while checking kit status.",
       },
     });
   }

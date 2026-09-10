@@ -158,6 +158,35 @@ This document tracks technical decisions, trade-offs, and heuristics chosen thro
      - **60-day timeline**: Questions distributed across early foundation days with spaced repetition review drills scheduled on later days so that no day is left empty.
   3. Guaranteed invariants: All `allocated_minutes >= 15`, every day has `day: number` and `items: ScheduleItem[]`.
 
+---
+
+## 2026-09-10: Phase 8 Decisions — Pipeline Orchestration & Async Kit Creation Route
+
+### End-to-End Orchestrator (`generateKit`)
+- **Decision**: Implemented `generateKit({ jd, companyUrl, days, options })` in `apps/api/src/pipeline/orchestrate.ts` sequentially coordinating:
+  1. Phase 4: Company site crawler (discovering about and hiring pages).
+  2. Phase 5: LLM requirement extraction (`extractRequirements`) and grounded company brief (`extractCompanyBrief`).
+  3. Phase 6: Per-requirement question generation (`generateAllQuestions`).
+  4. Phase 7: Pure set logic coverage verification loop (`runCoverageLoop`).
+  5. Phase 6: High-yield spaced repetition flashcards (`generateFlashcards`).
+  6. Phase 7: Deterministic arithmetic schedule allocation (`allocateSchedule`).
+  7. Appendix A assembly with role metadata parser (`parseRoleMetadata`) and strict structure validation (`assertValidKit`).
+- **Reasoning**: Ensures all stages are wired into a single typed pipeline callable by both the HTTP API route and the future Phase 9 batch evaluation CLI.
+
+### Robust Graceful Degradation (Rule 4 Compliance)
+- **Decision**: If company website crawl fails, 404s, or times out, the pipeline catches the error gracefully, populates `pages_used: []`, falls back to honest brief `"No public company information found."` without LLM calls, and proceeds with JD-only extraction. If LLM calls fail after exponential retries, typed `LLMError` exceptions are surfaced to the caller.
+
+### Truly Async Route & Status Polling (`POST /kits`, `GET /kits/:id/status`)
+- **Decision**:
+  1. `POST /kits` responds immediately with HTTP `202 Accepted` and `{ kitId, status: "generating" }`, preventing HTTP timeout during 30-90 second generation runs.
+  2. Background execution updates progress stages (`retrieving`, `extracting`, `generating_questions`, `verifying_coverage`, `generating_flashcards`, `allocating_schedule`, `completed`) on the kit record in MongoDB.
+  3. `GET /kits/:id/status` provides a lightweight, owner-scoped polling endpoint returning the active stage and status.
+
+### Idempotency & Rate Limit Protection
+- **Decision**: Implemented `computeGenerationHash(userId, jd, companyUrl, days)` using SHA-256 with a 15-minute sliding window.
+- **Reasoning**: Protects the user's OpenRouter rate limits from accidental double-clicks or duplicate submissions. If a kit with the exact same inputs is already generating or completed within 15 minutes, the existing kit ID is returned immediately with `isDuplicate: true` rather than spawning a duplicate generation job.
+
+
 
 
 

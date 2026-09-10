@@ -5,6 +5,9 @@ export interface IKitDocument extends Document, KitStructure {
   _id: mongoose.Types.ObjectId;
   ownerId: mongoose.Types.ObjectId;
   status: "generating" | "completed" | "failed";
+  generationHash?: string | null;
+  progressStage?: string;
+  errorMessage?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -28,6 +31,19 @@ const KitSchema: Schema<IKitDocument> = new Schema<IKitDocument>(
       enum: ["generating", "completed", "failed"],
       default: "completed",
       index: true,
+    },
+    generationHash: {
+      type: String,
+      index: true,
+      default: null,
+    },
+    progressStage: {
+      type: String,
+      default: "starting",
+    },
+    errorMessage: {
+      type: String,
+      default: null,
     },
     source: {
       company: { type: String, default: "" },
