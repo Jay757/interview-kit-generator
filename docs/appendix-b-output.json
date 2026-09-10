@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "generated_at": "2026-09-01T09:12:44Z",
+  "kits": [
+    { "id": "case-01",
+      "status": "ok",
+      "kit": { "...": "structure from appendix-a-kit-structure.json" },
+      "error": null },
+    { "id": "case-04",
+      "status": "failed",
+      "kit": null,
+      "error": { "code": "COMPANY_UNREACHABLE",
+        "message": "Company site unreachable after 3 retries." } }
+  ]
+}

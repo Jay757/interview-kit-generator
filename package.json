@@ -1,0 +1,18 @@
+{
+  "name": "trao-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Interview Prep Kit monorepo",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n \"api,web\" -c \"cyan,magenta\" \"npm run dev -w apps/api\" \"npm run dev -w apps/web\"",
+    "build": "npm run build -w apps/api && npm run build -w apps/web",
+    "test": "npm run test -w apps/api",
+    "lint": "npm run lint -w apps/api && npm run lint -w apps/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
