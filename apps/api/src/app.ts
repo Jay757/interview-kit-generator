@@ -3,6 +3,7 @@ import cors from "cors";
 import session, { Store } from "express-session";
 import MongoStore from "connect-mongo";
 import authRouter from "./routes/auth.js";
+import kitsRouter from "./routes/kits.js";
 import { requireAuth } from "./middleware/auth.js";
 
 interface CreateAppOptions {
@@ -53,6 +54,9 @@ export function createApp(options?: CreateAppOptions) {
 
   // Mount Auth routes
   app.use("/auth", authRouter);
+
+  // Mount Kit CRUD routes
+  app.use("/kits", kitsRouter);
 
   // Index and health endpoints
   app.get("/", (_req: Request, res: Response) => {
