@@ -47,3 +47,37 @@ This document tracks technical decisions, trade-offs, and heuristics chosen thro
 ### Item State Tags Architecture
 - **Decision**: Attached `state: "generated" | "edited" | "pinned"` with a default of `"generated"` across `requirements`, `questions`, and `flashcards`.
 - **Reasoning**: Scaffolding for Phase 11 (The Builder), ensuring that during future regeneration cycles, user-modified items (`"edited"` or `"pinned"`) are never clobbered or discarded.
+
+---
+
+## 2026-09-10: Phase 4 Decisions — Retrieval: Company Crawler, Page Fetcher & SSRF Barrier
+
+### SSRF Protection Barrier
+- **Decision**: Implemented `validateUrlForFetch(url, allowLocal)` in `apps/api/src/pipeline/retrieval/ssrf.ts`.
+- **Reasoning**:
+  1. Blocks non-HTTP/HTTPS schemes (file, ftp, gopher).
+  2. Blocks localhost hostnames (`localhost`, `127.0.0.1`, `::1`, `0.0.0.0`).
+  3. Blocks RFC1918 private IPv4 subnets (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`).
+  4. Blocks link-local addresses and cloud metadata services (`169.254.169.254`).
+  5. Provides explicit opt-in bypass via `ALLOW_LOCAL_FETCH=true` or options parameter, ensuring the batch evaluation test harness (serving fixture sites on localhost) functions seamlessly without compromising production security.
+
+### HTML Boilerplate Stripping & Content Extraction
+- **Decision**: Used `cheerio` with selective element extraction rather than heavier headless browser runtimes.
+- **Reasoning**:
+  - Strips noisy non-content elements (`script`, `style`, `nav`, `footer`, `header`, `noscript`, `svg`, `form`, `dialog`, `iframe`, and elements with `aria-hidden="true"`).
+  - Normalizes whitespace and paragraphs to preserve readable text flow.
+  - Enforces a 1 MB response size cap and 8-second request timeout to avoid slowloris/DoS attacks.
+  - Automatically resolves relative `href` links into absolute canonical URLs.
+
+### Dynamic Link Ranking over Hardcoded Paths
+- **Decision**: Heuristic scoring engine (`rankLinks` in `apps/api/src/pipeline/retrieval/linkRanker.ts`) evaluating both anchor text and URL pathnames against targeted hiring (`hiring`, `careers`, `jobs`, `positions`, `work-with-us`, `openings`, `join`) and about (`about`, `mission`, `values`, `team`, `story`, `engineering`) keywords.
+- **Reasoning**: Companies frequently nest hiring portals under arbitrary slugs (e.g. `/join-our-crew-2026` or `/jobs/engineering`). Static path guessing fails on unconventional URLs. Heuristic ranking dynamically floats high-signal links to the top.
+
+### Robots.txt Compliance
+- **Decision**: Implemented `parseRobotsTxt` in `apps/api/src/pipeline/retrieval/robots.ts`.
+- **Reasoning**: Matches target User-Agent (`*` and `trao-crawler/1.0`), respects explicit `Allow:` and `Disallow:` directives, records disallowed paths in `pagesSkipped`, and safely defaults to allow-all if `robots.txt` is absent (404) or unreachable.
+
+### Public Interview Discussion Search Strategy
+- **Decision**: Implemented `searchPublicInterviewDiscussion(companyName)` in `apps/api/src/pipeline/retrieval/discussion.ts` with transparent null fallback.
+- **Reasoning**: Connects to Tavily Search API when `TAVILY_API_KEY` is present. When absent or unconfigured, it returns `null` cleanly without throwing errors and strictly adheres to the rule: **Never invent facts**. LLM generation downstream operates honestly with company about/hiring text alone when public discussions are unavailable.
+
