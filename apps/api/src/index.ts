@@ -9,8 +9,14 @@ const PORT = process.env.PORT || 4000;
 const app = createApp();
 
 async function startServer() {
-  try {
-    if (process.env.MONGODB_URI) {
+  // 1. Bind to PORT immediately so Render and cloud health probes succeed instantly
+  const server = app.listen(PORT, () => {
+    console.log(`Trao API listening on http://localhost:${PORT}`);
+  });
+
+  // 2. Connect to MongoDB
+  if (process.env.MONGODB_URI) {
+    try {
       await connectDB();
       console.log("Connected to MongoDB successfully.");
 
@@ -35,16 +41,14 @@ async function startServer() {
       } catch (cleanErr) {
         console.warn("Could not sweep orphaned kits on startup:", cleanErr);
       }
-    } else {
-      console.warn("MONGODB_URI not set; skipping database connection on startup.");
+    } catch (error: any) {
+      console.error("❌ Failed to connect to MongoDB:", error.message);
+      console.warn(
+        "⚠️ Ensure '0.0.0.0/0' is added to MongoDB Atlas Network Access so Render can connect."
+      );
     }
-
-    app.listen(PORT, () => {
-      console.log(`Trao API listening on http://localhost:${PORT}`);
-    });
-  } catch (error) {
-    console.error("Failed to start server:", error);
-    process.exit(1);
+  } else {
+    console.warn("MONGODB_URI not set; skipping database connection on startup.");
   }
 }
 
