@@ -1,0 +1,8 @@
+[
+  {
+    "id": "case-stripe-senior-backend",
+    "jd": "Senior Distributed Systems Engineer\n\nRequirements:\n- 5+ years building scalable, fault-tolerant backends in Go, Java, or TypeScript.\n- Experience with Apache Kafka, PostgreSQL, and distributed caching with Redis.\n- Deep understanding of database partitioning, ACID transactions, idempotency, and consensus protocols (Raft/Paxos).\n- Proven experience designing low-latency REST/gRPC APIs and leading architecture reviews.",
+    "company_url": "https://stripe.com",
+    "days": 5
+  }
+]

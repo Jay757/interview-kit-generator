@@ -124,8 +124,12 @@ As mandated by Appendix B, Trao includes a standalone command-line evaluation en
 npm run evaluate -- --input <cases.json> --output <kits.json>
 ```
 
-### Example:
+### Examples:
 ```powershell
+# 1. Realistic case (Senior Distributed Systems Engineer @ Stripe):
+npm run evaluate -- --input test-cases.json --output results.json
+
+# 2. Appendix B fixture:
 npm run evaluate -- --input docs/appendix-b-input.json --output docs/appendix-b-output.json
 ```
 

@@ -39,3 +39,5 @@ apps/*/coverage/
 scratch/
 tmp/
 *.tsbuildinfo
+results.json
+
