@@ -155,22 +155,22 @@ export default function KitsDashboardPage() {
   }, [kits, searchQuery, statusFilter]);
 
   return (
-    <div className="min-h-screen bg-[#090a0f] text-zinc-100 bg-grid-architectural">
+    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-[#090a0f] dark:text-zinc-100 bg-grid-architectural transition-colors duration-200">
       <Navbar />
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Top Header & Fast Action */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-zinc-800/80">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200 dark:border-zinc-800/80">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-950 dark:text-white">
                 Interview Prep Kits
               </h1>
-              <span className="px-2 py-0.5 rounded-full text-xs font-mono font-medium bg-zinc-800 text-zinc-300 border border-zinc-700">
+              <span className="px-2 py-0.5 rounded-full text-xs font-mono font-medium bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300 border border-slate-300 dark:border-zinc-700">
                 {kits.length}
               </span>
             </div>
-            <p className="mt-1 text-sm text-zinc-400">
+            <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">
               Personalized interview study kits grounded in live company intelligence.
             </p>
           </div>
@@ -189,26 +189,26 @@ export default function KitsDashboardPage() {
         {/* Search & Filter Toolbar */}
         <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="relative w-full sm:w-80">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-zinc-500" />
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400 dark:text-zinc-500" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by company or role..."
-              className="w-full rounded-lg border border-zinc-800 bg-zinc-950/80 pl-9 pr-4 py-2 text-xs text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              className="w-full rounded-lg border border-slate-300 bg-white text-slate-900 placeholder-slate-400 dark:border-zinc-800 dark:bg-zinc-950/80 dark:text-zinc-100 dark:placeholder-zinc-500 pl-9 pr-4 py-2 text-xs focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
             />
           </div>
 
           {/* Status Tabs */}
-          <div className="flex items-center p-1 bg-zinc-900/90 border border-zinc-800 rounded-lg text-xs font-medium self-start sm:self-auto">
+          <div className="flex items-center p-1 bg-slate-100 border border-slate-200 dark:bg-zinc-900/90 dark:border-zinc-800 rounded-lg text-xs font-medium self-start sm:self-auto">
             {(["all", "completed", "generating", "failed"] as const).map((st) => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
                 className={`px-3 py-1 rounded-md capitalize transition-colors ${
                   statusFilter === st
-                    ? "bg-zinc-800 text-amber-400 font-semibold shadow-sm"
-                    : "text-zinc-400 hover:text-zinc-200"
+                    ? "bg-white text-amber-600 shadow-sm font-bold dark:bg-zinc-800 dark:text-amber-400"
+                    : "text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200"
                 }`}
               >
                 {st}
@@ -223,11 +223,11 @@ export default function KitsDashboardPage() {
             {[1, 2, 3].map((n) => (
               <div
                 key={n}
-                className="h-48 rounded-xl border border-zinc-800 bg-[#0f1117] p-5 animate-pulse space-y-4"
+                className="h-48 rounded-xl border border-slate-200 bg-white dark:border-zinc-800 dark:bg-[#0f1117] p-5 animate-pulse space-y-4 shadow-sm"
               >
-                <div className="h-4 w-1/3 bg-zinc-800 rounded" />
-                <div className="h-6 w-3/4 bg-zinc-800 rounded" />
-                <div className="h-4 w-1/2 bg-zinc-800 rounded" />
+                <div className="h-4 w-1/3 bg-slate-200 dark:bg-zinc-800 rounded" />
+                <div className="h-6 w-3/4 bg-slate-200 dark:bg-zinc-800 rounded" />
+                <div className="h-4 w-1/2 bg-slate-200 dark:bg-zinc-800 rounded" />
               </div>
             ))}
           </div>
@@ -235,12 +235,12 @@ export default function KitsDashboardPage() {
 
         {/* Empty State */}
         {!loading && filteredKits.length === 0 && (
-          <div className="mt-12 rounded-2xl border border-dashed border-zinc-800 bg-[#0f1117]/60 p-12 text-center max-w-lg mx-auto space-y-4">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
+          <div className="mt-12 rounded-2xl border border-dashed border-slate-300 bg-white/70 dark:border-zinc-800 dark:bg-[#0f1117]/60 p-12 text-center max-w-lg mx-auto space-y-4 shadow-sm">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500">
               <Sparkles className="h-6 w-6" />
             </div>
-            <h3 className="text-base font-bold text-white">No Prep Kits Found</h3>
-            <p className="text-xs text-zinc-400 leading-relaxed">
+            <h3 className="text-base font-bold text-slate-950 dark:text-white">No Prep Kits Found</h3>
+            <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">
               {searchQuery
                 ? "No kits matched your search query. Try clearing the filter."
                 : "You haven't generated any interview preparation kits yet. Paste a job description to synthesize your first kit in seconds."}
@@ -272,31 +272,31 @@ export default function KitsDashboardPage() {
                 <div
                   key={kit._id}
                   onClick={() => router.push(`/kits/${kit._id}`)}
-                  className="group relative cursor-pointer rounded-xl border border-zinc-800/90 bg-[#0f1117] p-5 shadow-sm transition-all hover:border-zinc-700 hover:shadow-md hover:bg-[#12141c] flex flex-col justify-between"
+                  className="group relative cursor-pointer rounded-xl border border-slate-200 bg-white dark:border-zinc-800/90 dark:bg-[#0f1117] p-5 shadow-sm transition-all hover:border-slate-300 dark:hover:border-zinc-700 hover:shadow-md hover:bg-slate-50 dark:hover:bg-[#12141c] flex flex-col justify-between"
                 >
                   <div className="space-y-3">
                     {/* Header line: Company & Status badge */}
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-xs uppercase tracking-wider text-amber-400 font-bold truncate max-w-[160px]">
+                      <span className="font-mono text-xs uppercase tracking-wider text-amber-500 dark:text-amber-400 font-bold truncate max-w-[160px]">
                         {company}
                       </span>
 
                       {/* Status indicator */}
                       <div>
                         {isReady && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400" />
                             Ready
                           </span>
                         )}
                         {isGenerating && (
-                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 animate-pulse">
                             <Loader2 className="h-3 w-3 animate-spin" />
                             {kit.progressStage || "Generating..."}
                           </span>
                         )}
                         {isFailed && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-red-500/10 text-red-400 border border-red-500/20">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/20">
                             <AlertCircle className="h-3 w-3" />
                             Failed
                           </span>
@@ -306,11 +306,11 @@ export default function KitsDashboardPage() {
 
                     {/* Role Title */}
                     <div>
-                      <h2 className="text-base font-bold text-zinc-100 group-hover:text-white transition-colors line-clamp-2 leading-snug">
+                      <h2 className="text-base font-bold text-slate-900 dark:text-zinc-100 group-hover:text-slate-950 dark:group-hover:text-white transition-colors line-clamp-2 leading-snug">
                         {roleTitle}
                       </h2>
                       {kit.role?.seniority && (
-                        <span className="mt-1 inline-block text-[11px] font-mono text-zinc-400">
+                        <span className="mt-1 inline-block text-[11px] font-mono text-slate-500 dark:text-zinc-400">
                           {kit.role.seniority} • {kit.source?.location || "Remote"}
                         </span>
                       )}
@@ -318,28 +318,28 @@ export default function KitsDashboardPage() {
 
                     {/* Metric Badges */}
                     {isReady && (
-                      <div className="grid grid-cols-3 gap-2 py-2 border-y border-zinc-800/80 text-center font-mono">
-                        <div className="bg-zinc-950/60 p-1.5 rounded border border-zinc-800/60">
-                          <span className="text-xs font-bold text-amber-400 block">
+                      <div className="grid grid-cols-3 gap-2 py-2 border-y border-slate-200 dark:border-zinc-800/80 text-center font-mono">
+                        <div className="bg-slate-100 dark:bg-zinc-950/60 p-1.5 rounded border border-slate-200 dark:border-zinc-800/60">
+                          <span className="text-xs font-bold text-amber-600 dark:text-amber-400 block">
                             {kit.questions?.length || 0}
                           </span>
-                          <span className="text-[9px] uppercase tracking-wider text-zinc-400 block">
+                          <span className="text-[9px] uppercase tracking-wider text-slate-500 dark:text-zinc-400 block">
                             Questions
                           </span>
                         </div>
-                        <div className="bg-zinc-950/60 p-1.5 rounded border border-zinc-800/60">
-                          <span className="text-xs font-bold text-zinc-200 block">
+                        <div className="bg-slate-100 dark:bg-zinc-950/60 p-1.5 rounded border border-slate-200 dark:border-zinc-800/60">
+                          <span className="text-xs font-bold text-slate-800 dark:text-zinc-200 block">
                             {kit.flashcards?.length || 0}
                           </span>
-                          <span className="text-[9px] uppercase tracking-wider text-zinc-400 block">
+                          <span className="text-[9px] uppercase tracking-wider text-slate-500 dark:text-zinc-400 block">
                             Cards
                           </span>
                         </div>
-                        <div className="bg-zinc-950/60 p-1.5 rounded border border-zinc-800/60">
-                          <span className="text-xs font-bold text-emerald-400 block">
+                        <div className="bg-slate-100 dark:bg-zinc-950/60 p-1.5 rounded border border-slate-200 dark:border-zinc-800/60">
+                          <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 block">
                             {kit.schedule?.days_available || 5}d
                           </span>
-                          <span className="text-[9px] uppercase tracking-wider text-zinc-400 block">
+                          <span className="text-[9px] uppercase tracking-wider text-slate-500 dark:text-zinc-400 block">
                             Timeline
                           </span>
                         </div>
@@ -348,7 +348,7 @@ export default function KitsDashboardPage() {
                   </div>
 
                   {/* Card Footer: Timestamp & Delete action */}
-                  <div className="mt-4 pt-3 flex items-center justify-between text-xs text-zinc-400 border-t border-zinc-800/60 font-mono">
+                  <div className="mt-4 pt-3 flex items-center justify-between text-xs text-slate-500 dark:text-zinc-400 border-t border-slate-200 dark:border-zinc-800/60 font-mono">
                     <span>
                       {new Date(kit.createdAt).toLocaleDateString(undefined, {
                         month: "short",
@@ -360,13 +360,13 @@ export default function KitsDashboardPage() {
                       <button
                         onClick={(e) => handleDeleteKit(kit._id, e)}
                         disabled={deletingId === kit._id}
-                        className="p-1 rounded text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        className="p-1 rounded text-slate-400 dark:text-zinc-500 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors"
                         title="Delete Kit"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
 
-                      <span className="text-amber-400 font-sans group-hover:translate-x-0.5 transition-transform">
+                      <span className="text-amber-500 dark:text-amber-400 font-sans group-hover:translate-x-0.5 transition-transform">
                         →
                       </span>
                     </div>

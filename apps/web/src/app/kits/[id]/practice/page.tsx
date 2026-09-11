@@ -2,13 +2,25 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { Navbar } from "@/components/Navbar";
+import { useTheme } from "@/context/ThemeContext";
 
 interface Flashcard {
   id: string;
   front: string;
   back: string;
   requirement_ids: string[];
+  state?: "generated" | "edited" | "pinned";
+}
+
+interface Question {
+  id: string;
+  category: "technical" | "behavioural" | "system-design" | "company-fit" | string;
+  difficulty: number;
+  prompt: string;
+  answer_outline: string;
+  requirement_ids?: string[];
   state?: "generated" | "edited" | "pinned";
 }
 
@@ -43,9 +55,19 @@ interface PracticeData {
   kit_id: string;
   role: string;
   company: string;
+  questions?: Question[];
   flashcards: Flashcard[];
   coverage: CoverageSummary;
   attempts: PracticeAttempt[];
+}
+
+interface AIEvaluation {
+  score: number;
+  verdict: "Strong Hire" | "Hire" | "Leaning Hire" | "Needs Improvement" | "No Hire";
+  summary: string;
+  strengths: string[];
+  improvements: string[];
+  modelAnswer: string;
 }
 
 const RATING_SCALES = [
@@ -53,60 +75,96 @@ const RATING_SCALES = [
     key: 1,
     label: "Again",
     sub: "< 1 min",
-    desc: "Complete blackout or incorrect",
+    desc: "Blackout / Incorrect",
     color: "rose",
-    bg: "bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border-rose-500/30",
-    activeBorder: "border-rose-400",
+    bg: "bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 dark:text-rose-400 border-rose-500/20",
   },
   {
     key: 2,
     label: "Hard",
     sub: "1 day",
-    desc: "Recalled with significant hesitation",
+    desc: "Hesitant recall",
     color: "amber",
-    bg: "bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border-amber-500/30",
-    activeBorder: "border-amber-400",
+    bg: "bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/20",
   },
   {
     key: 3,
     label: "Good",
     sub: "3 days",
-    desc: "Correct recall with reasonable effort",
-    color: "emerald",
-    bg: "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-    activeBorder: "border-emerald-400",
+    desc: "Correct with effort",
+    color: "blue",
+    bg: "bg-blue-500/10 hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 border-blue-500/20",
   },
   {
     key: 4,
     label: "Easy",
     sub: "5+ days",
-    desc: "Instant, effortless mastery",
-    color: "cyan",
-    bg: "bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
-    activeBorder: "border-cyan-400",
+    desc: "Effortless mastery",
+    color: "emerald",
+    bg: "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
   },
 ];
+
+const CATEGORY_LABELS: Record<string, { label: string; badge: string }> = {
+  technical: {
+    label: "Technical Depth",
+    badge: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+  },
+  "system-design": {
+    label: "System Architecture",
+    badge: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20",
+  },
+  system_design: {
+    label: "System Architecture",
+    badge: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20",
+  },
+  behavioural: {
+    label: "Leadership & STAR",
+    badge: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20",
+  },
+  behavioral: {
+    label: "Leadership & STAR",
+    badge: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20",
+  },
+  "company-fit": {
+    label: "Company Fit & Culture",
+    badge: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+  },
+  situational: {
+    label: "Culture & Execution",
+    badge: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+  },
+};
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 export default function PracticeModePage() {
   const params = useParams();
   const router = useRouter();
   const id = params?.id as string;
+  const { theme } = useTheme();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<PracticeData | null>(null);
 
-  // Deck state
-  const [currentIndex, setCurrentIndex] = useState(0);
+  // Active mode: questions practice vs flashcard deck vs coverage
+  const [activeMode, setActiveMode] = useState<"questions" | "flashcards" | "coverage">("questions");
+
+  // --- QUESTION PRACTICE STATE ---
+  const [currentQIndex, setCurrentQIndex] = useState(0);
+  const [userAnswers, setUserAnswers] = useState<Record<string, string>>({});
+  const [evaluations, setEvaluations] = useState<Record<string, AIEvaluation>>({});
+  const [evaluating, setEvaluating] = useState(false);
+  const [showModelAnswer, setShowModelAnswer] = useState<Record<string, boolean>>({});
+  const [questionFilter, setQuestionFilter] = useState<string>("all");
+
+  // --- FLASHCARD STATE ---
+  const [cardIndex, setCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [submittingRating, setSubmittingRating] = useState(false);
-  const [activeDeck, setActiveDeck] = useState<Flashcard[]>([]);
-  const [viewMode, setViewMode] = useState<"practice" | "coverage">("practice");
-
-  // Session stats
-  const [sessionRatings, setSessionRatings] = useState<Map<string, number>>(new Map());
-  const [isSessionFinished, setIsSessionFinished] = useState(false);
   const [justRatedFeedback, setJustRatedFeedback] = useState<number | null>(null);
+  const [isSessionFinished, setIsSessionFinished] = useState(false);
 
   // Fetch practice data
   const fetchPracticeData = useCallback(async () => {
@@ -114,7 +172,7 @@ export default function PracticeModePage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`http://localhost:4000/kits/${id}/practice`, {
+      const res = await fetch(`${API_URL}/kits/${id}/practice`, {
         credentials: "include",
       });
 
@@ -137,9 +195,19 @@ export default function PracticeModePage() {
 
       const json: PracticeData = await res.json();
       setData(json);
-      setActiveDeck(json.flashcards || []);
-      setCurrentIndex(0);
-      setIsFlipped(false);
+
+      // If no questions in practice response yet, fetch full kit
+      if (!json.questions || json.questions.length === 0) {
+        const fullKitRes = await fetch(`${API_URL}/kits/${id}`, { credentials: "include" });
+        if (fullKitRes.ok) {
+          const fullKitData = await fullKitRes.json();
+          const actualFullKit = fullKitData.kit || fullKitData;
+          if (actualFullKit.questions) {
+            json.questions = actualFullKit.questions;
+            setData({ ...json, questions: actualFullKit.questions });
+          }
+        }
+      }
     } catch (err: any) {
       console.error("Practice load error:", err);
       setError(err.message || "An unexpected error occurred.");
@@ -152,187 +220,142 @@ export default function PracticeModePage() {
     fetchPracticeData();
   }, [fetchPracticeData]);
 
+  // Questions filtered list
+  const filteredQuestions = useMemo(() => {
+    const list = data?.questions || [];
+    if (questionFilter === "all") return list;
+    return list.filter((q) => q.category === questionFilter);
+  }, [data?.questions, questionFilter]);
+
+  const currentQuestion = useMemo(() => {
+    if (filteredQuestions.length === 0) return null;
+    return filteredQuestions[currentQIndex] || filteredQuestions[0];
+  }, [filteredQuestions, currentQIndex]);
+
+  // Flashcards list
+  const flashcards = useMemo(() => data?.flashcards || [], [data?.flashcards]);
   const currentCard = useMemo(() => {
-    if (!activeDeck || activeDeck.length === 0) return null;
-    return activeDeck[currentIndex] || null;
-  }, [activeDeck, currentIndex]);
+    if (flashcards.length === 0) return null;
+    return flashcards[cardIndex] || flashcards[0];
+  }, [flashcards, cardIndex]);
 
-  // Flip action
-  const handleFlip = useCallback(() => {
-    setIsFlipped((prev) => !prev);
-  }, []);
-
-  // Next and Previous navigation
-  const handleNext = useCallback(() => {
-    if (currentIndex < activeDeck.length - 1) {
-      setCurrentIndex((prev) => prev + 1);
-      setIsFlipped(false);
-      setJustRatedFeedback(null);
-    } else {
-      setIsSessionFinished(true);
+  // Evaluate candidate answer with AI
+  const handleEvaluateAnswer = async () => {
+    if (!currentQuestion) return;
+    const answer = (userAnswers[currentQuestion.id] || "").trim();
+    if (!answer) {
+      alert("Please write your answer response before requesting AI scoring.");
+      return;
     }
-  }, [currentIndex, activeDeck.length]);
 
-  const handlePrevious = useCallback(() => {
-    if (currentIndex > 0) {
-      setCurrentIndex((prev) => prev - 1);
-      setIsFlipped(false);
-      setJustRatedFeedback(null);
+    try {
+      setEvaluating(true);
+      const res = await fetch(`${API_URL}/kits/${id}/practice/evaluate-answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          question_id: currentQuestion.id,
+          user_answer: answer,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error?.message || "Evaluation failed.");
+      }
+
+      const result = await res.json();
+      if (result.evaluation) {
+        setEvaluations((prev) => ({
+          ...prev,
+          [currentQuestion.id]: result.evaluation,
+        }));
+      }
+    } catch (err: any) {
+      console.error("Evaluation error:", err);
+      alert(err.message || "Failed to score answer.");
+    } finally {
+      setEvaluating(false);
     }
-  }, [currentIndex]);
+  };
 
-  // Submit confidence rating
-  const handleRate = useCallback(
-    async (confidence: number) => {
-      if (!currentCard || submittingRating) return;
+  // Toggle model answer visibility
+  const toggleModelAnswer = (qid: string) => {
+    setShowModelAnswer((prev) => ({
+      ...prev,
+      [qid]: !prev[qid],
+    }));
+  };
 
-      try {
-        setSubmittingRating(true);
-        setJustRatedFeedback(confidence);
+  // Submit flashcard confidence rating
+  const handleRateFlashcard = async (confidence: number) => {
+    if (!currentCard || submittingRating) return;
 
-        // Record locally for session summary
-        setSessionRatings((prev) => {
-          const next = new Map(prev);
-          next.set(currentCard.id, confidence);
-          return next;
-        });
+    try {
+      setSubmittingRating(true);
+      setJustRatedFeedback(confidence);
 
-        // Persist to backend
-        const res = await fetch(`http://localhost:4000/kits/${id}/practice/attempt`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            card_id: currentCard.id,
-            confidence,
-          }),
-        });
+      const res = await fetch(`${API_URL}/kits/${id}/practice/attempt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          card_id: currentCard.id,
+          confidence,
+        }),
+      });
 
-        if (res.ok) {
-          const resJson = await res.json();
-          if (resJson?.coverage) {
-            setData((prev) => (prev ? { ...prev, coverage: resJson.coverage } : prev));
-          }
+      if (res.ok) {
+        const resJson = await res.json();
+        if (resJson?.coverage) {
+          setData((prev) => (prev ? { ...prev, coverage: resJson.coverage } : prev));
         }
+      }
 
-        // Brief 250ms feedback before advancing to next card
-        setTimeout(() => {
-          handleNext();
-          setSubmittingRating(false);
-        }, 220);
-      } catch (err) {
-        console.error("Failed to record attempt:", err);
+      setTimeout(() => {
+        if (cardIndex < flashcards.length - 1) {
+          setCardIndex((prev) => prev + 1);
+          setIsFlipped(false);
+          setJustRatedFeedback(null);
+        } else {
+          setIsSessionFinished(true);
+        }
         setSubmittingRating(false);
-      }
-    },
-    [currentCard, submittingRating, id, handleNext]
-  );
-
-  // Keyboard navigation listener
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if focus is in an input or textarea
-      if (["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) {
-        return;
-      }
-
-      if (isSessionFinished) {
-        if (e.key === "Escape") {
-          setIsSessionFinished(false);
-        }
-        return;
-      }
-
-      if (e.code === "Space" || e.key === "Enter") {
-        e.preventDefault();
-        handleFlip();
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        handleNext();
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        handlePrevious();
-      } else if (["1", "2", "3", "4"].includes(e.key)) {
-        // Only rate if revealed
-        if (isFlipped) {
-          e.preventDefault();
-          handleRate(parseInt(e.key, 10));
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleFlip, handleNext, handlePrevious, handleRate, isFlipped, isSessionFinished]);
-
-  // Filter deck to weak cards only
-  const handleDrillWeakCards = () => {
-    if (!data) return;
-    const weakCardIds = new Set<string>();
-
-    // From session ratings
-    sessionRatings.forEach((conf, cardId) => {
-      if (conf <= 2) weakCardIds.add(cardId);
-    });
-
-    // From historical attempts
-    for (const att of data.attempts || []) {
-      if (att.confidence <= 2) weakCardIds.add(att.card_id);
+      }, 250);
+    } catch (err) {
+      console.error("Failed to record rating:", err);
+      setSubmittingRating(false);
     }
-
-    const weakDeck = data.flashcards.filter((f) => weakCardIds.has(f.id));
-    if (weakDeck.length > 0) {
-      setActiveDeck(weakDeck);
-    } else {
-      setActiveDeck(data.flashcards);
-    }
-    setCurrentIndex(0);
-    setIsFlipped(false);
-    setIsSessionFinished(false);
-    setSessionRatings(new Map());
   };
 
-  // Restart full deck
-  const handleRestartFullDeck = () => {
-    if (!data) return;
-    setActiveDeck(data.flashcards || []);
-    setCurrentIndex(0);
-    setIsFlipped(false);
-    setIsSessionFinished(false);
-    setSessionRatings(new Map());
+  // Render difficulty rating badge
+  const renderDifficulty = (level: number) => {
+    const bars = [1, 2, 3];
+    return (
+      <div className="flex items-center gap-1" title={`Difficulty: Level ${level}`}>
+        {bars.map((b) => (
+          <span
+            key={b}
+            className={`h-2.5 w-2 rounded-sm ${
+              b <= level ? "bg-amber-500 dark:bg-amber-400" : "bg-slate-200 dark:bg-zinc-700"
+            }`}
+          />
+        ))}
+      </div>
+    );
   };
-
-  // Session summary calculations
-  const sessionSummary = useMemo(() => {
-    const reviewedCount = sessionRatings.size;
-    let sumConf = 0;
-    const dist = { 1: 0, 2: 0, 3: 0, 4: 0 };
-    sessionRatings.forEach((conf) => {
-      sumConf += conf;
-      if (conf in dist) dist[conf as 1 | 2 | 3 | 4]++;
-    });
-    const avg = reviewedCount > 0 ? (sumConf / reviewedCount).toFixed(1) : "0.0";
-    const neverAttemptedRemaining = data
-      ? Math.max(0, data.flashcards.length - (data.coverage?.practicedCardsCount || 0))
-      : 0;
-
-    return {
-      reviewedCount,
-      avgConfidence: avg,
-      distribution: dist,
-      neverAttemptedRemaining,
-    };
-  }, [sessionRatings, data]);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#090a0f] text-zinc-100 flex flex-col">
+      <div className="min-h-screen bg-slate-50 dark:bg-[#08090d] text-slate-900 dark:text-zinc-100">
         <Navbar />
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <div className="h-10 w-10 mx-auto rounded-full border-2 border-amber-400 border-t-transparent animate-spin" />
-            <p className="text-sm font-mono text-zinc-400">Loading Adaptive Practice Deck...</p>
-          </div>
+        <div className="max-w-4xl mx-auto px-4 py-32 text-center">
+          <div className="inline-block h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent mb-4" />
+          <h2 className="text-xl font-semibold">Initializing Practice Environment...</h2>
+          <p className="text-sm text-slate-500 dark:text-zinc-400 mt-2">
+            Loading tailored scenarios, model benchmarks, and active memory cards.
+          </p>
         </div>
       </div>
     );
@@ -340,22 +363,19 @@ export default function PracticeModePage() {
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-[#090a0f] text-zinc-100 flex flex-col">
+      <div className="min-h-screen bg-slate-50 dark:bg-[#08090d] text-slate-900 dark:text-zinc-100">
         <Navbar />
-        <div className="flex-1 flex items-center justify-center p-4">
-          <div className="max-w-md w-full rounded-2xl border border-red-500/30 bg-[#0f1117] p-8 text-center space-y-4 shadow-2xl">
-            <div className="h-12 w-12 mx-auto rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 text-xl font-bold">
-              !
-            </div>
-            <h2 className="text-lg font-bold text-white">Practice Mode Unavailable</h2>
-            <p className="text-sm text-zinc-400">{error || "Failed to load deck data."}</p>
-            <div className="pt-2">
-              <button
-                onClick={() => router.push(`/kits/${id}`)}
-                className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-200 transition-colors"
+        <div className="max-w-2xl mx-auto px-4 py-24 text-center">
+          <div className="p-8 rounded-3xl bg-white/80 dark:bg-[#0e1322]/80 backdrop-blur-xl border border-rose-500/20 shadow-xl">
+            <h2 className="text-2xl font-bold text-rose-500 mb-4">Practice Session Unavailable</h2>
+            <p className="text-slate-600 dark:text-zinc-300 mb-8">{error || "Could not load kit data."}</p>
+            <div className="flex justify-center gap-4">
+              <Link
+                href={`/kits/${id}`}
+                className="px-6 py-2.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-black font-semibold hover:opacity-90 transition-opacity"
               >
-                ← Return to Kit Builder
-              </button>
+                Return to Kit Overview
+              </Link>
             </div>
           </div>
         </div>
@@ -363,551 +383,591 @@ export default function PracticeModePage() {
     );
   }
 
-  const progressPct =
-    activeDeck.length > 0 ? Math.round(((currentIndex + 1) / activeDeck.length) * 100) : 0;
+  const currentEval = currentQuestion ? evaluations[currentQuestion.id] : null;
+  const isModelAnswerVisible = currentQuestion ? showModelAnswer[currentQuestion.id] : false;
 
   return (
-    <div className="min-h-screen bg-[#090a0f] text-zinc-100 flex flex-col bg-grid-architectural">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#08090d] text-slate-900 dark:text-zinc-100 font-sans transition-colors duration-200 pb-32">
       <Navbar />
 
-      {/* TOP COMMAND BAR */}
-      <header className="sticky top-14 z-30 border-b border-zinc-800/80 bg-[#090a0f]/90 backdrop-blur-md px-4 py-3 sm:px-8">
-        <div className="mx-auto max-w-7xl flex flex-wrap items-center justify-between gap-4">
-          {/* Left: Breadcrumbs & Meta */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.push(`/kits/${id}`)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-700/70 bg-zinc-900/80 hover:bg-zinc-800 text-xs font-medium text-zinc-300 transition-colors shadow-sm"
-              title="Return to Kit Builder"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              <span>Back to Kit</span>
-            </button>
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+        {/* TOP BREADCRUMB & HEADER */}
+        <div className="mb-8">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-zinc-400 mb-3">
+            <Link href="/kits" className="hover:text-blue-500 transition-colors">
+              Dashboard
+            </Link>
+            <span>/</span>
+            <Link href={`/kits/${id}`} className="hover:text-blue-500 transition-colors">
+              {data.company} ({data.role})
+            </Link>
+            <span>/</span>
+            <span className="text-slate-900 dark:text-zinc-200">Interactive Practice</span>
+          </div>
 
-            <div className="h-4 w-px bg-zinc-800 hidden sm:block" />
-
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-6 rounded-3xl bg-white/80 dark:bg-[#0e1324]/80 backdrop-blur-xl border border-slate-200/80 dark:border-white/[0.08] shadow-lg">
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-semibold text-amber-400 uppercase tracking-wider">
-                  Practice Mode
-                </span>
-                <span className="text-zinc-600 text-xs">•</span>
-                <span className="text-xs text-zinc-400 font-medium">
-                  {data.company} — {data.role}
+              <div className="flex items-center gap-3 mb-1">
+                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+                  {data.company} Interview Practice
+                </h1>
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                  {data.role}
                 </span>
               </div>
+              <p className="text-xs sm:text-sm text-slate-500 dark:text-zinc-400">
+                Answer live scenario questions for AI scoring and drill memory flashcards with spaced repetition.
+              </p>
             </div>
-          </div>
 
-          {/* Center: Live Progress */}
-          <div className="flex items-center gap-3">
-            <div className="text-xs font-mono text-zinc-400">
-              Card <span className="text-amber-300 font-bold">{currentIndex + 1}</span> of{" "}
-              <span className="text-zinc-300">{activeDeck.length}</span>
-            </div>
-            <div className="w-28 sm:w-40 h-2 bg-zinc-800/80 rounded-full overflow-hidden border border-zinc-700/40">
-              <div
-                className="h-full bg-gradient-to-r from-amber-500 to-amber-300 transition-all duration-300 ease-out"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-          </div>
-
-          {/* Right: View Mode & End Session */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center rounded-lg border border-zinc-800 bg-zinc-950/60 p-0.5">
+            {/* MODE SWITCHER PILL */}
+            <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-white/[0.06] border border-slate-200 dark:border-white/[0.08] self-start md:self-auto">
               <button
-                onClick={() => setViewMode("practice")}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                  viewMode === "practice"
-                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                    : "text-zinc-400 hover:text-zinc-200"
+                onClick={() => setActiveMode("questions")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+                  activeMode === "questions"
+                    ? "bg-white dark:bg-[#1a2138] text-blue-600 dark:text-blue-400 shadow-sm"
+                    : "text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
-                ⚡ Drill Deck
+                <span>🧠</span>
+                <span>Question Practice & AI Scoring</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 font-mono">
+                  {data.questions?.length || 0}
+                </span>
               </button>
+
               <button
-                onClick={() => setViewMode("coverage")}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                  viewMode === "coverage"
-                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                    : "text-zinc-400 hover:text-zinc-200"
+                onClick={() => setActiveMode("flashcards")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+                  activeMode === "flashcards"
+                    ? "bg-white dark:bg-[#1a2138] text-indigo-600 dark:text-indigo-400 shadow-sm"
+                    : "text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white"
                 }`}
               >
-                📊 Coverage Radar
+                <span>⚡</span>
+                <span>Flashcards</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-mono">
+                  {flashcards.length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setActiveMode("coverage")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+                  activeMode === "coverage"
+                    ? "bg-white dark:bg-[#1a2138] text-emerald-600 dark:text-emerald-400 shadow-sm"
+                    : "text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <span>📊</span>
+                <span>Coverage</span>
               </button>
             </div>
-
-            <button
-              onClick={() => setIsSessionFinished(true)}
-              className="px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-xs font-medium text-zinc-300 transition-colors"
-            >
-              Finish Session
-            </button>
           </div>
         </div>
-      </header>
 
-      {/* MAIN VIEW */}
-      <main className="flex-1 mx-auto max-w-7xl w-full px-4 py-6 sm:px-8">
-        {viewMode === "practice" ? (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* LEFT RAIL: FLASHCARD STAGE (8 COLS) */}
-            <div className="lg:col-span-8 flex flex-col items-center space-y-6">
-              {currentCard ? (
-                <div className="w-full max-w-2xl">
-                  {/* Card Header & Badges */}
-                  <div className="flex items-center justify-between mb-3 px-1">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30 uppercase tracking-wide">
-                        Card #{currentIndex + 1}
-                      </span>
-                      {currentCard.requirement_ids?.map((rid) => (
+        {/* ------------------------------------------------------------- */}
+        {/* MODE 1: QUESTION PRACTICE WITH AI EVALUATION */}
+        {/* ------------------------------------------------------------- */}
+        {activeMode === "questions" && (
+          <div>
+            {filteredQuestions.length === 0 ? (
+              <div className="p-12 text-center rounded-3xl bg-white/80 dark:bg-[#0e1324]/80 backdrop-blur-xl border border-slate-200/80 dark:border-white/[0.08]">
+                <p className="text-slate-500 dark:text-zinc-400 text-lg">
+                  No questions match the current filter.
+                </p>
+                <button
+                  onClick={() => setQuestionFilter("all")}
+                  className="mt-4 px-4 py-2 rounded-xl bg-blue-600 text-white font-medium text-sm"
+                >
+                  Clear Filter
+                </button>
+              </div>
+            ) : currentQuestion ? (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                {/* LEFT: QUESTION WORKSPACE (8 cols) */}
+                <div className="lg:col-span-8 space-y-6">
+                  {/* QUESTION CARD */}
+                  <div className="p-6 sm:p-8 rounded-3xl bg-white/80 dark:bg-[#0e1324]/80 backdrop-blur-xl border border-slate-200/80 dark:border-white/[0.08] shadow-lg">
+                    {/* Meta bar */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-5 border-b border-slate-200/80 dark:border-white/[0.08]">
+                      <div className="flex items-center gap-2.5">
                         <span
-                          key={rid}
-                          className="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 text-zinc-300 border border-zinc-700"
-                          title={`Linked Requirement ID: ${rid}`}
+                          className={`text-xs font-semibold px-3 py-1 rounded-full border ${
+                            CATEGORY_LABELS[currentQuestion.category]?.badge ||
+                            "bg-slate-500/10 text-slate-600"
+                          }`}
                         >
-                          req:{rid}
+                          {CATEGORY_LABELS[currentQuestion.category]?.label || currentQuestion.category}
                         </span>
-                      ))}
+                        <div className="flex items-center gap-1.5 pl-2">
+                          <span className="text-xs text-slate-500 dark:text-zinc-400">Difficulty:</span>
+                          {renderDifficulty(currentQuestion.difficulty)}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-medium text-slate-500 dark:text-zinc-400">
+                          Scenario {currentQIndex + 1} of {filteredQuestions.length}
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="text-[11px] font-mono text-zinc-400 flex items-center gap-2">
-                      <span>{isFlipped ? "Answer Outline" : "Question Prompt"}</span>
-                      <span className="text-zinc-600">•</span>
-                      <span className="text-amber-400/80">Space / Click to Flip</span>
+                    {/* Question Prompt */}
+                    <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-900 dark:text-white leading-snug mb-6">
+                      {currentQuestion.prompt}
+                    </h2>
+
+                    {/* CANDIDATE ANSWER TEXTAREA */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-zinc-300 flex items-center gap-2">
+                          <span>✍️ Your Interview Answer</span>
+                        </label>
+                        <span className="text-xs font-mono text-slate-400">
+                          {((userAnswers[currentQuestion.id] || "").trim().split(/\s+/).filter(Boolean).length)} words
+                        </span>
+                      </div>
+
+                      <textarea
+                        rows={7}
+                        value={userAnswers[currentQuestion.id] || ""}
+                        onChange={(e) =>
+                          setUserAnswers((prev) => ({
+                            ...prev,
+                            [currentQuestion.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="Type your structured answer here (e.g. STAR format, architecture trade-offs, metrics, failure considerations)..."
+                        className="w-full p-4 rounded-2xl bg-slate-50/80 dark:bg-black/30 border border-slate-300/80 dark:border-white/[0.1] text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 font-normal text-base resize-y transition-all"
+                      />
+
+                      {/* ACTIONS: SCORE WITH AI & SHOW MODEL ANSWER */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={handleEvaluateAnswer}
+                            disabled={evaluating || !(userAnswers[currentQuestion.id] || "").trim()}
+                            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-sm shadow-md shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
+                          >
+                            {evaluating ? (
+                              <>
+                                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                                <span>Evaluating Answer...</span>
+                              </>
+                            ) : (
+                              <>
+                                <span>🤖 Score My Answer with AI</span>
+                              </>
+                            )}
+                          </button>
+
+                          {/* SHOW MODEL ANSWER (Strictly hidden until user clicks, prevents spoiler & saves token) */}
+                          <button
+                            onClick={() => toggleModelAnswer(currentQuestion.id)}
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.06] dark:hover:bg-white/[0.1] text-slate-700 dark:text-zinc-200 font-medium text-sm border border-slate-200 dark:border-white/[0.08] transition-all"
+                          >
+                            <span>{isModelAnswerVisible ? "👁️ Hide Model Answer" : "💡 Show Model Answer"}</span>
+                          </button>
+                        </div>
+
+                        {/* NAV PREV / NEXT */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              if (currentQIndex > 0) setCurrentQIndex((prev) => prev - 1);
+                            }}
+                            disabled={currentQIndex === 0}
+                            className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.06] dark:hover:bg-white/[0.1] text-slate-700 dark:text-zinc-300 font-medium text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            ← Previous
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (currentQIndex < filteredQuestions.length - 1) {
+                                setCurrentQIndex((prev) => prev + 1);
+                              }
+                            }}
+                            disabled={currentQIndex === filteredQuestions.length - 1}
+                            className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.06] dark:hover:bg-white/[0.1] text-slate-700 dark:text-zinc-300 font-medium text-xs disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            Next Question →
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  {/* 3D PERSPECTIVE CARD CONTAINER */}
-                  <div
-                    onClick={handleFlip}
-                    className="perspective-1000 w-full min-h-[360px] sm:min-h-[400px] cursor-pointer select-none group"
-                  >
-                    <div
-                      className={`relative w-full h-full min-h-[360px] sm:min-h-[400px] rounded-2xl border transition-all duration-500 transform-style-preserve-3d shadow-2xl ${
-                        isFlipped ? "rotate-y-180" : ""
-                      } ${
-                        isFlipped
-                          ? "border-amber-500/40 bg-[#12151f] shadow-amber-500/5"
-                          : "border-zinc-700/80 bg-[#0f1117] hover:border-zinc-500/80 shadow-black/40"
-                      }`}
-                    >
-                      {/* FRONT FACE (QUESTION) */}
-                      <div className="absolute inset-0 backface-hidden p-6 sm:p-8 flex flex-col justify-between rounded-2xl">
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between text-xs text-zinc-400 font-mono">
-                            <span className="flex items-center gap-1.5">
-                              <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-                              RECALL CHALLENGE
+                  {/* MODEL ANSWER ACCORDION (Reveals exact benchmark when clicked) */}
+                  {isModelAnswerVisible && (
+                    <div className="p-6 rounded-3xl bg-amber-500/[0.06] border border-amber-500/20 backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-300 shadow-md">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-amber-500 font-bold text-sm">🎯 Benchmark Model Answer</span>
+                          <span className="text-[11px] text-amber-600/80 dark:text-amber-400/80 font-medium">
+                            (Staff / Principal Baseline)
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => toggleModelAnswer(currentQuestion.id)}
+                          className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+                        >
+                          ✕ Close
+                        </button>
+                      </div>
+
+                      <div className="text-sm sm:text-base leading-relaxed text-slate-800 dark:text-zinc-200 whitespace-pre-line font-normal bg-white/60 dark:bg-black/40 p-4 rounded-2xl border border-amber-500/10">
+                        {currentEval?.modelAnswer || currentQuestion.answer_outline || (
+                          "Demonstrate architectural constraints, failure isolation boundaries, idempotency keys, and explicit performance SLAs."
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI EVALUATION FEEDBACK CARD */}
+                  {currentEval && (
+                    <div className="p-6 sm:p-8 rounded-3xl bg-white/90 dark:bg-[#0e1428]/90 backdrop-blur-xl border border-blue-500/30 shadow-xl shadow-blue-500/5 animate-in fade-in slide-in-from-top-3 duration-300">
+                      <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-slate-200/80 dark:border-white/[0.08]">
+                        <div className="flex items-center gap-4">
+                          {/* Radial Score Badge */}
+                          <div className="relative flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/10 to-indigo-500/20 border border-blue-500/30">
+                            <span className="text-2xl font-black font-mono text-blue-600 dark:text-blue-400">
+                              {currentEval.score}
                             </span>
-                            <span className="text-zinc-500">SM-2 Adaptive Deck</span>
                           </div>
 
-                          <div className="pt-4">
-                            <h3 className="text-lg sm:text-2xl font-semibold text-white leading-relaxed tracking-tight">
-                              {currentCard.front}
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                                Bar Raiser Verdict
+                              </span>
+                            </div>
+                            <h3
+                              className={`text-xl font-bold ${
+                                currentEval.verdict === "Strong Hire" || currentEval.verdict === "Hire"
+                                  ? "text-emerald-500"
+                                  : currentEval.verdict === "Leaning Hire"
+                                  ? "text-amber-500"
+                                  : "text-rose-500"
+                              }`}
+                            >
+                              {currentEval.verdict}
                             </h3>
                           </div>
                         </div>
 
-                        {/* Front Footer Prompt */}
-                        <div className="pt-6 border-t border-zinc-800/80 flex items-center justify-between">
-                          <span className="text-xs text-zinc-400 flex items-center gap-1.5 font-medium">
-                            <svg className="h-4 w-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                            Click card or press <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[10px] font-mono text-zinc-300">Space</kbd> to reveal answer
-                          </span>
-
-                          <span className="text-xs text-amber-400 font-semibold group-hover:translate-x-1 transition-transform flex items-center gap-1">
-                            Reveal Back →
-                          </span>
-                        </div>
+                        <span className="text-xs font-mono text-slate-500 dark:text-zinc-400 bg-slate-100 dark:bg-white/[0.05] px-3 py-1.5 rounded-xl">
+                          Score: {currentEval.score}/100
+                        </span>
                       </div>
 
-                      {/* BACK FACE (ANSWER & CONFIDENCE RATING) */}
-                      <div className="absolute inset-0 backface-hidden rotate-y-180 p-6 sm:p-8 flex flex-col justify-between rounded-2xl bg-[#12151f]">
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between text-xs text-amber-400 font-mono">
-                            <span className="flex items-center gap-1.5 font-semibold">
-                              <span>✓</span>
-                              MODEL ANSWER & KEY TAKEAWAYS
-                            </span>
-                            <span className="text-zinc-500">Rate your recall</span>
-                          </div>
+                      {/* Summary text */}
+                      <p className="mt-4 text-sm sm:text-base text-slate-700 dark:text-zinc-300 leading-relaxed">
+                        {currentEval.summary}
+                      </p>
 
-                          <div className="pt-2 max-h-[220px] overflow-y-auto pr-2 custom-scrollbar">
-                            <p className="text-sm sm:text-base text-zinc-200 leading-relaxed whitespace-pre-wrap font-sans">
-                              {currentCard.back}
-                            </p>
-                          </div>
+                      {/* Strengths & Improvements Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                        {/* STRENGTHS */}
+                        <div className="p-4 rounded-2xl bg-emerald-500/[0.05] border border-emerald-500/20">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-3 flex items-center gap-1.5">
+                            <span>✓ Key Strengths</span>
+                          </h4>
+                          <ul className="space-y-2 text-xs sm:text-sm text-slate-700 dark:text-zinc-300">
+                            {currentEval.strengths?.map((str, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="text-emerald-500 font-bold">•</span>
+                                <span>{str}</span>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
 
-                        {/* Back Footer: Quick Confidence Rating Buttons */}
-                        <div
-                          onClick={(e) => e.stopPropagation()}
-                          className="pt-4 border-t border-zinc-800/90 space-y-2.5"
-                        >
-                          <div className="flex items-center justify-between text-[11px] font-mono text-zinc-400">
-                            <span>How easily did you recall this?</span>
-                            <span className="text-zinc-500">Press 1–4 on keyboard</span>
-                          </div>
-
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                            {RATING_SCALES.map((scale) => {
-                              const isRatedNow = justRatedFeedback === scale.key;
-                              return (
-                                <button
-                                  key={scale.key}
-                                  disabled={submittingRating}
-                                  onClick={() => handleRate(scale.key)}
-                                  className={`flex flex-col items-center justify-center p-2.5 rounded-xl border transition-all text-center group/btn ${
-                                    scale.bg
-                                  } ${isRatedNow ? scale.activeBorder + " ring-2 ring-amber-400" : ""}`}
-                                >
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="h-4 w-4 rounded bg-zinc-950/60 border border-zinc-700/50 flex items-center justify-center text-[10px] font-mono font-bold text-zinc-300">
-                                      {scale.key}
-                                    </span>
-                                    <span className="text-xs font-bold">{scale.label}</span>
-                                  </div>
-                                  <span className="text-[10px] font-mono text-zinc-400 mt-0.5">
-                                    {scale.sub}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
+                        {/* IMPROVEMENTS */}
+                        <div className="p-4 rounded-2xl bg-amber-500/[0.05] border border-amber-500/20">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 mb-3 flex items-center gap-1.5">
+                            <span>⚡ How to Elevate</span>
+                          </h4>
+                          <ul className="space-y-2 text-xs sm:text-sm text-slate-700 dark:text-zinc-300">
+                            {currentEval.improvements?.map((imp, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="text-amber-500 font-bold">•</span>
+                                <span>{imp}</span>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
                       </div>
                     </div>
+                  )}
+                </div>
+
+                {/* RIGHT: QUESTION JUMPER & CATEGORY LIST (4 cols) */}
+                <div className="lg:col-span-4 space-y-6">
+                  {/* CATEGORY FILTER */}
+                  <div className="p-5 rounded-3xl bg-white/80 dark:bg-[#0e1324]/80 backdrop-blur-xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400 mb-3">
+                      Filter Scenarios
+                    </h3>
+                    <div className="flex flex-wrap gap-1.5">
+                      {["all", "technical", "system-design", "behavioural", "company-fit"].map((cat) => (
+                        <button
+                          key={cat}
+                          onClick={() => {
+                            setQuestionFilter(cat);
+                            setCurrentQIndex(0);
+                          }}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-medium capitalize transition-all ${
+                            questionFilter === cat
+                              ? "bg-blue-600 text-white shadow-sm"
+                              : "bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.05] dark:hover:bg-white/[0.1] text-slate-600 dark:text-zinc-400"
+                          }`}
+                        >
+                          {cat === "all" ? "All" : cat.replace("-", " ")}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
-                  {/* BOTTOM STEPPER CONTROLS */}
-                  <div className="flex items-center justify-between mt-4 px-2">
-                    <button
-                      onClick={handlePrevious}
-                      disabled={currentIndex === 0}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 hover:bg-zinc-800 text-xs font-medium text-zinc-300 disabled:opacity-30 disabled:pointer-events-none transition-colors"
-                    >
-                      <span>←</span>
-                      <span>Previous</span>
-                    </button>
-
-                    <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono">
-                      <span>
-                        <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded border border-zinc-700 text-zinc-300">←</kbd> /{" "}
-                        <kbd className="px-1.5 py-0.5 bg-zinc-800 rounded border border-zinc-700 text-zinc-300">→</kbd> to step
+                  {/* QUESTION PROGRESS LIST */}
+                  <div className="p-5 rounded-3xl bg-white/80 dark:bg-[#0e1324]/80 backdrop-blur-xl border border-slate-200/80 dark:border-white/[0.08] shadow-sm">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">
+                        Interview Scenarios ({filteredQuestions.length})
+                      </h3>
+                      <span className="text-xs font-mono text-slate-400">
+                        {Object.keys(evaluations).length}/{filteredQuestions.length} Scored
                       </span>
                     </div>
 
-                    <button
-                      onClick={handleNext}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60 hover:bg-zinc-800 text-xs font-medium text-zinc-300 transition-colors"
-                    >
-                      <span>{currentIndex === activeDeck.length - 1 ? "Finish Deck" : "Next"}</span>
-                      <span>→</span>
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-8 text-center text-zinc-400">No cards in current deck filter.</div>
-              )}
-            </div>
+                    <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
+                      {filteredQuestions.map((q, idx) => {
+                        const isCurrent = idx === currentQIndex;
+                        const hasAnswer = Boolean((userAnswers[q.id] || "").trim());
+                        const evaluation = evaluations[q.id];
 
-            {/* RIGHT RAIL: LIVE SESSION STATS & REQUIREMENTS COVERAGE (4 COLS) */}
-            <div className="lg:col-span-4 space-y-6">
-              {/* Coverage Snapshot Card */}
-              <div className="rounded-2xl border border-zinc-800/90 bg-[#0f1117] p-5 shadow-xl space-y-4">
-                <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
-                    <span>⚡</span>
-                    <span>Adaptive Study Radar</span>
-                  </h4>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                    SM-2 Active
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="p-3 rounded-xl border border-zinc-800/80 bg-zinc-950/40">
-                    <div className="text-[10px] font-mono text-zinc-400 uppercase">Flashcard Recall</div>
-                    <div className="text-lg font-bold text-white mt-1">
-                      {data.coverage?.cardCoveragePercentage || 0}%
-                    </div>
-                    <div className="text-[11px] text-zinc-400">
-                      {data.coverage?.practicedCardsCount || 0} / {data.coverage?.totalCards || 0} practiced
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl border border-zinc-800/80 bg-zinc-950/40">
-                    <div className="text-[10px] font-mono text-zinc-400 uppercase">Avg Confidence</div>
-                    <div className="text-lg font-bold text-amber-400 mt-1">
-                      {data.coverage?.averageConfidence ? `${data.coverage.averageConfidence} / 4.0` : "New"}
-                    </div>
-                    <div className="text-[11px] text-zinc-400">Cumulative score</div>
-                  </div>
-                </div>
-
-                {/* Score breakdown distribution */}
-                <div className="space-y-2 pt-1">
-                  <div className="text-[11px] font-mono text-zinc-400 flex justify-between">
-                    <span>Confidence Distribution</span>
-                    <span>Latest attempts</span>
-                  </div>
-                  <div className="grid grid-cols-4 gap-1.5 text-center text-[10px] font-mono">
-                    <div className="p-1.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-300">
-                      <div>Again (1)</div>
-                      <div className="font-bold text-xs mt-0.5">
-                        {data.coverage?.confidenceDistribution?.[1] || 0}
-                      </div>
-                    </div>
-                    <div className="p-1.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300">
-                      <div>Hard (2)</div>
-                      <div className="font-bold text-xs mt-0.5">
-                        {data.coverage?.confidenceDistribution?.[2] || 0}
-                      </div>
-                    </div>
-                    <div className="p-1.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
-                      <div>Good (3)</div>
-                      <div className="font-bold text-xs mt-0.5">
-                        {data.coverage?.confidenceDistribution?.[3] || 0}
-                      </div>
-                    </div>
-                    <div className="p-1.5 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-300">
-                      <div>Easy (4)</div>
-                      <div className="font-bold text-xs mt-0.5">
-                        {data.coverage?.confidenceDistribution?.[4] || 0}
-                      </div>
+                        return (
+                          <button
+                            key={q.id}
+                            onClick={() => setCurrentQIndex(idx)}
+                            className={`w-full text-left p-3 rounded-2xl transition-all border ${
+                              isCurrent
+                                ? "bg-blue-500/10 border-blue-500/40 text-blue-600 dark:text-blue-300 font-semibold"
+                                : "bg-slate-50 hover:bg-slate-100 dark:bg-white/[0.02] dark:hover:bg-white/[0.06] border-slate-200/80 dark:border-white/[0.05] text-slate-700 dark:text-zinc-300"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-[10px] uppercase font-mono tracking-wider text-slate-400">
+                                Question {idx + 1}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                {evaluation && (
+                                  <span
+                                    className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                                      evaluation.score >= 80
+                                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                        : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                                    }`}
+                                  >
+                                    {evaluation.score}pts
+                                  </span>
+                                )}
+                                {hasAnswer && !evaluation && (
+                                  <span className="text-[10px] text-blue-500 font-medium">Drafted</span>
+                                )}
+                              </div>
+                            </div>
+                            <p className="text-xs line-clamp-2 leading-relaxed">{q.prompt}</p>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
+              </div>
+            ) : null}
+          </div>
+        )}
 
-                {/* Requirements Covered via Flashcard Practice */}
-                <div className="pt-2 border-t border-zinc-800/80 space-y-2.5">
-                  <div className="flex items-center justify-between text-xs font-mono text-zinc-300">
-                    <span>JD Requirement Reinforcement</span>
-                    <span className="text-amber-400 font-bold">
-                      {data.coverage?.coveredRequirementsCount || 0} /{" "}
-                      {data.coverage?.totalRequirementsCount || 0}
+        {/* ------------------------------------------------------------- */}
+        {/* MODE 2: FLASHCARD DRILL & SPACED REPETITION */}
+        {/* ------------------------------------------------------------- */}
+        {activeMode === "flashcards" && (
+          <div className="max-w-4xl mx-auto">
+            {flashcards.length === 0 ? (
+              <div className="p-12 text-center rounded-3xl bg-white/80 dark:bg-[#0e1324]/80 backdrop-blur-xl border border-slate-200/80 dark:border-white/[0.08]">
+                <h3 className="text-xl font-bold mb-2">No Flashcards Available</h3>
+                <p className="text-slate-500 dark:text-zinc-400 mb-6 text-sm">
+                  You can regenerate flashcards or add custom cards in the kit overview.
+                </p>
+                <Link
+                  href={`/kits/${id}`}
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 text-white font-medium text-sm"
+                >
+                  Go to Kit Overview
+                </Link>
+              </div>
+            ) : isSessionFinished ? (
+              /* SESSION FINISHED SUMMARY */
+              <div className="p-10 rounded-3xl bg-white/80 dark:bg-[#0e1324]/80 backdrop-blur-xl border border-slate-200/80 dark:border-white/[0.08] text-center shadow-xl">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-500 text-3xl mb-4">
+                  🎉
+                </div>
+                <h2 className="text-2xl font-bold mb-2">Drill Session Complete!</h2>
+                <p className="text-sm text-slate-500 dark:text-zinc-400 max-w-md mx-auto mb-8">
+                  You reviewed all {flashcards.length} flashcards in this deck. Spaced repetition intervals have been logged.
+                </p>
+
+                <div className="flex justify-center gap-4">
+                  <button
+                    onClick={() => {
+                      setCardIndex(0);
+                      setIsFlipped(false);
+                      setIsSessionFinished(false);
+                    }}
+                    className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm shadow-md transition-all"
+                  >
+                    Drill Deck Again
+                  </button>
+                  <Link
+                    href={`/kits/${id}`}
+                    className="px-6 py-2.5 rounded-xl bg-slate-100 dark:bg-white/[0.06] text-slate-700 dark:text-zinc-300 font-semibold text-sm border border-slate-200 dark:border-white/[0.08]"
+                  >
+                    Back to Kit
+                  </Link>
+                </div>
+              </div>
+            ) : currentCard ? (
+              <div className="space-y-6">
+                {/* DECK PROGRESS HEADER */}
+                <div className="flex items-center justify-between px-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono font-semibold uppercase tracking-wider text-slate-400">
+                      Card {cardIndex + 1} of {flashcards.length}
+                    </span>
+                    <span className="text-slate-300 dark:text-zinc-700">•</span>
+                    <span className="text-xs text-slate-500 dark:text-zinc-400">
+                      {Math.round(((cardIndex) / flashcards.length) * 100)}% Complete
                     </span>
                   </div>
 
-                  <p className="text-[11px] text-zinc-400 leading-relaxed">
-                    Flashcards reinforce JD requirements through active recall. Green indicates at least 1 practice touch.
-                  </p>
+                  {/* Progress bar */}
+                  <div className="w-32 h-1.5 rounded-full bg-slate-200 dark:bg-zinc-800 overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-500 transition-all duration-300"
+                      style={{ width: `${((cardIndex + 1) / flashcards.length) * 100}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
 
-              {/* Keyboard Shortcut Cheatsheet */}
-              <div className="rounded-2xl border border-zinc-800/70 bg-zinc-950/40 p-4 space-y-2.5 text-xs">
-                <div className="font-mono text-[10px] uppercase text-zinc-500 font-bold">Keyboard Navigation</div>
-                <div className="grid grid-cols-2 gap-2 text-zinc-400 font-mono text-[11px]">
-                  <div className="flex items-center gap-1.5">
-                    <kbd className="px-1.5 py-0.5 bg-zinc-900 border border-zinc-700 rounded text-zinc-200">Space</kbd>
-                    <span>Flip card</span>
+                {/* 3D FLIP CARD */}
+                <div
+                  onClick={() => setIsFlipped((prev) => !prev)}
+                  className="cursor-pointer group relative min-h-[380px] sm:min-h-[420px] rounded-3xl bg-white/80 dark:bg-[#0e1324]/80 backdrop-blur-xl border border-slate-200/80 dark:border-white/[0.08] p-8 sm:p-12 flex flex-col justify-between shadow-xl transition-all duration-300 hover:shadow-2xl hover:border-indigo-500/30"
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                      {isFlipped ? "Answer" : "Question Prompt"}
+                    </span>
+                    <span className="text-xs text-slate-400 group-hover:text-indigo-500 transition-colors">
+                      {isFlipped ? "Click to see prompt ↺" : "Click to reveal answer ↻"}
+                    </span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <kbd className="px-1.5 py-0.5 bg-zinc-900 border border-zinc-700 rounded text-zinc-200">1–4</kbd>
-                    <span>Rate recall</span>
+
+                  {/* Content */}
+                  <div className="my-auto py-6">
+                    <p className="text-xl sm:text-2xl md:text-3xl font-medium tracking-tight text-slate-900 dark:text-white leading-relaxed text-center">
+                      {isFlipped ? currentCard.back : currentCard.front}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <kbd className="px-1.5 py-0.5 bg-zinc-900 border border-zinc-700 rounded text-zinc-200">→</kbd>
-                    <span>Next card</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <kbd className="px-1.5 py-0.5 bg-zinc-900 border border-zinc-700 rounded text-zinc-200">←</kbd>
-                    <span>Previous</span>
+
+                  {/* Footer hint */}
+                  <div className="text-center pt-4 border-t border-slate-100 dark:border-white/[0.05]">
+                    <span className="text-xs text-slate-400">
+                      Shortcut: Press Space or Enter to flip
+                    </span>
                   </div>
                 </div>
+
+                {/* SM-2 CONFIDENCE RATING BUTTONS */}
+                {isFlipped ? (
+                  <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                    <div className="text-center">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        How well did you recall this?
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {RATING_SCALES.map((scale) => (
+                        <button
+                          key={scale.key}
+                          onClick={() => handleRateFlashcard(scale.key)}
+                          disabled={submittingRating}
+                          className={`p-3.5 rounded-2xl border text-center transition-all disabled:opacity-50 ${scale.bg}`}
+                        >
+                          <div className="font-bold text-sm">{scale.label}</div>
+                          <div className="text-[11px] opacity-75">{scale.sub}</div>
+                          <div className="text-[10px] mt-1 opacity-60 line-clamp-1">{scale.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-center">
+                    <button
+                      onClick={() => setIsFlipped(true)}
+                      className="px-8 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-md shadow-indigo-500/20 transition-all active:scale-[0.98]"
+                    >
+                      Reveal Answer (Space)
+                    </button>
+                  </div>
+                )}
               </div>
-            </div>
+            ) : null}
           </div>
-        ) : (
-          /* FULL COVERAGE RADAR MATRIX VIEW */
-          <div className="space-y-6">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
-              <div>
-                <h3 className="text-lg font-bold text-white">Syllabus Practice Coverage Matrix</h3>
-                <p className="text-xs text-zinc-400">
-                  Comprehensive audit of practiced flashcards vs unpracticed cards and JD requirement mapping
-                </p>
-              </div>
-              <button
-                onClick={() => setViewMode("practice")}
-                className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-semibold transition-colors"
-              >
-                Back to Drill Deck →
-              </button>
-            </div>
+        )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Practiced Flashcards */}
-              <div className="rounded-2xl border border-emerald-500/20 bg-[#0f1117] p-5 space-y-4">
-                <div className="flex items-center justify-between text-xs font-mono">
-                  <span className="text-emerald-400 font-bold flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                    PRACTICED FLASHCARDS ({data.coverage?.practicedCardsCount || 0})
-                  </span>
-                  <span className="text-zinc-500">Active Recall History</span>
+        {/* ------------------------------------------------------------- */}
+        {/* MODE 3: COVERAGE MATRIX */}
+        {/* ------------------------------------------------------------- */}
+        {activeMode === "coverage" && (
+          <div className="max-w-4xl mx-auto space-y-6">
+            <div className="p-6 sm:p-8 rounded-3xl bg-white/80 dark:bg-[#0e1324]/80 backdrop-blur-xl border border-slate-200/80 dark:border-white/[0.08] shadow-lg">
+              <h2 className="text-xl font-bold mb-4">Kit Practice Coverage</h2>
+              <p className="text-sm text-slate-500 dark:text-zinc-400 mb-6">
+                Tracks mastery of interview topics based on SM-2 recall retention and answered scenario depth.
+              </p>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.05]">
+                  <div className="text-xs text-slate-400 mb-1">Total Cards</div>
+                  <div className="text-2xl font-black font-mono">{data.coverage?.totalCards || flashcards.length}</div>
                 </div>
-
-                <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-                  {data.flashcards
-                    .filter((f) => data.coverage?.practicedCardIds?.includes(f.id))
-                    .map((card) => (
-                      <div
-                        key={card.id}
-                        className="p-3 rounded-lg border border-zinc-800 bg-zinc-950/40 space-y-1 text-xs"
-                      >
-                        <div className="flex items-center justify-between font-mono text-[10px] text-zinc-400">
-                          <span className="text-emerald-400 font-semibold">{card.id}</span>
-                          <span>req: {card.requirement_ids?.join(", ")}</span>
-                        </div>
-                        <div className="text-zinc-200 font-medium line-clamp-2">{card.front}</div>
-                      </div>
-                    ))}
-                  {(data.coverage?.practicedCardsCount || 0) === 0 && (
-                    <div className="p-6 text-center text-zinc-500 text-xs font-mono">
-                      No flashcards practiced yet. Flip and rate cards in Drill Deck!
-                    </div>
-                  )}
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.05]">
+                  <div className="text-xs text-slate-400 mb-1">Practiced</div>
+                  <div className="text-2xl font-black font-mono text-emerald-500">
+                    {data.coverage?.practicedCardsCount || 0}
+                  </div>
                 </div>
-              </div>
-
-              {/* Untouched Flashcards */}
-              <div className="rounded-2xl border border-zinc-800 bg-[#0f1117] p-5 space-y-4">
-                <div className="flex items-center justify-between text-xs font-mono">
-                  <span className="text-amber-400 font-bold flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-amber-400" />
-                    UNTOUCHED FLASHCARDS ({data.coverage?.unpracticedCardsCount || 0})
-                  </span>
-                  <span className="text-zinc-500">Prioritized by SM-2 for next run</span>
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.05]">
+                  <div className="text-xs text-slate-400 mb-1">Coverage Rate</div>
+                  <div className="text-2xl font-black font-mono text-blue-500">
+                    {data.coverage?.cardCoveragePercentage || 0}%
+                  </div>
                 </div>
-
-                <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-                  {data.flashcards
-                    .filter((f) => data.coverage?.unpracticedCardIds?.includes(f.id))
-                    .map((card) => (
-                      <div
-                        key={card.id}
-                        className="p-3 rounded-lg border border-zinc-800/80 bg-zinc-950/40 space-y-1 text-xs"
-                      >
-                        <div className="flex items-center justify-between font-mono text-[10px] text-zinc-400">
-                          <span className="text-amber-400/80 font-semibold">{card.id}</span>
-                          <span>req: {card.requirement_ids?.join(", ")}</span>
-                        </div>
-                        <div className="text-zinc-200 font-medium line-clamp-2">{card.front}</div>
-                      </div>
-                    ))}
-                  {(data.coverage?.unpracticedCardsCount || 0) === 0 && (
-                    <div className="p-6 text-center text-emerald-400 text-xs font-mono">
-                      ✓ 100% syllabus coverage! Every flashcard has been practiced at least once.
-                    </div>
-                  )}
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.05]">
+                  <div className="text-xs text-slate-400 mb-1">Scored Questions</div>
+                  <div className="text-2xl font-black font-mono text-purple-500">
+                    {Object.keys(evaluations).length} / {data.questions?.length || 0}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         )}
       </main>
-
-      {/* SESSION FINISHED MODAL / SUMMARY DIALOG */}
-      {isSessionFinished && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-          <div className="w-full max-w-lg rounded-2xl border border-zinc-800 bg-[#0f1117] p-6 sm:p-8 shadow-2xl space-y-6">
-            <div className="text-center space-y-2">
-              <div className="h-12 w-12 mx-auto rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-2xl">
-                🏆
-              </div>
-              <h3 className="text-xl font-bold text-white tracking-tight">Practice Run Completed</h3>
-              <p className="text-xs text-zinc-400">
-                Spaced repetition attempts recorded and synchronized to your prep kit
-              </p>
-            </div>
-
-            {/* Session Stats Grid */}
-            <div className="grid grid-cols-3 gap-3">
-              <div className="p-3 rounded-xl border border-zinc-800 bg-zinc-950/60 text-center">
-                <div className="text-[10px] font-mono text-zinc-400 uppercase">Reviewed</div>
-                <div className="text-xl font-bold text-white mt-1">{sessionSummary.reviewedCount}</div>
-                <div className="text-[10px] text-zinc-500">cards this run</div>
-              </div>
-
-              <div className="p-3 rounded-xl border border-zinc-800 bg-zinc-950/60 text-center">
-                <div className="text-[10px] font-mono text-zinc-400 uppercase">Avg Rating</div>
-                <div className="text-xl font-bold text-amber-400 mt-1">{sessionSummary.avgConfidence}</div>
-                <div className="text-[10px] text-zinc-500">out of 4.0</div>
-              </div>
-
-              <div className="p-3 rounded-xl border border-zinc-800 bg-zinc-950/60 text-center">
-                <div className="text-[10px] font-mono text-zinc-400 uppercase">Untouched</div>
-                <div className="text-xl font-bold text-zinc-200 mt-1">
-                  {sessionSummary.neverAttemptedRemaining}
-                </div>
-                <div className="text-[10px] text-zinc-500">cards remaining</div>
-              </div>
-            </div>
-
-            {/* Rating breakdown visual */}
-            <div className="space-y-2 p-3 rounded-xl border border-zinc-800/80 bg-zinc-950/40">
-              <div className="text-[11px] font-mono text-zinc-400 flex justify-between">
-                <span>Session Rating Breakdown</span>
-                <span>Attempts</span>
-              </div>
-              <div className="grid grid-cols-4 gap-1.5 text-center text-[10px] font-mono">
-                <div className="p-1 rounded bg-rose-500/10 border border-rose-500/20 text-rose-300">
-                  <div>Again</div>
-                  <div className="font-bold text-xs mt-0.5">{sessionSummary.distribution[1]}</div>
-                </div>
-                <div className="p-1 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300">
-                  <div>Hard</div>
-                  <div className="font-bold text-xs mt-0.5">{sessionSummary.distribution[2]}</div>
-                </div>
-                <div className="p-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
-                  <div>Good</div>
-                  <div className="font-bold text-xs mt-0.5">{sessionSummary.distribution[3]}</div>
-                </div>
-                <div className="p-1 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-300">
-                  <div>Easy</div>
-                  <div className="font-bold text-xs mt-0.5">{sessionSummary.distribution[4]}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="space-y-2.5 pt-2">
-              <button
-                onClick={handleDrillWeakCards}
-                className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-semibold text-xs transition-colors shadow-sm flex items-center justify-center gap-2"
-              >
-                <span>↺</span>
-                <span>Review Weak & Hard Cards</span>
-              </button>
-
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={handleRestartFullDeck}
-                  className="py-2 rounded-xl border border-zinc-700 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition-colors"
-                >
-                  ↻ Restart Full Deck
-                </button>
-                <button
-                  onClick={() => router.push(`/kits/${id}`)}
-                  className="py-2 rounded-xl border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-medium transition-colors"
-                >
-                  ← Back to Kit Builder
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

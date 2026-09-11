@@ -89,5 +89,26 @@ export function createApp(options?: CreateAppOptions) {
     });
   });
 
+  // 404 Catch-All Handler
+  app.use((_req: Request, res: Response) => {
+    res.status(404).json({
+      error: {
+        code: "NOT_FOUND",
+        message: "Endpoint not found.",
+      },
+    });
+  });
+
+  // Global Structured Error Handler (never leaks stack traces)
+  app.use((err: any, _req: Request, res: Response, _next: any) => {
+    console.error("Unhandled server error:", err);
+    res.status(err.status || 500).json({
+      error: {
+        code: err.code || "INTERNAL_ERROR",
+        message: err.message || "An unexpected internal server error occurred.",
+      },
+    });
+  });
+
   return app;
 }

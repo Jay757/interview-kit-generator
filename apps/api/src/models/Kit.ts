@@ -14,6 +14,7 @@ export interface IKitDocument extends Document, KitStructure {
   generationHash?: string | null;
   progressStage?: string;
   errorMessage?: string | null;
+  errorCode?: string | null;
   practice_attempts?: IPracticeAttempt[];
   createdAt: Date;
   updatedAt: Date;
@@ -49,6 +50,10 @@ const KitSchema: Schema<IKitDocument> = new Schema<IKitDocument>(
       default: "starting",
     },
     errorMessage: {
+      type: String,
+      default: null,
+    },
+    errorCode: {
       type: String,
       default: null,
     },

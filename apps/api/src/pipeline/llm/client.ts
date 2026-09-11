@@ -63,6 +63,9 @@ export async function callLLM(
   while (attempt <= maxRetries) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const startTime = Date.now();
+    const snippet = userPrompt.length > 70 ? `${userPrompt.slice(0, 70).replace(/\n/g, " ")}...` : userPrompt.replace(/\n/g, " ");
+    console.log(`🤖 [LLM Call #${attempt + 1}] -> ${model} | "${snippet}" (${userPrompt.length} chars)`);
 
     try {
       const response = await fetchClient(OPENROUTER_ENDPOINT, {
@@ -73,11 +76,14 @@ export async function callLLM(
       });
 
       clearTimeout(timeoutId);
+      const duration = Date.now() - startTime;
 
       // Handle successful response
       if (response.ok) {
         const data = (await response.json()) as any;
         const candidateText = data.choices?.[0]?.message?.content ?? "";
+        const totalTokens = data.usage?.total_tokens ?? "?";
+        console.log(`✅ [LLM Success] <- ${duration}ms | Model: ${data.model || model} | Tokens: ${totalTokens}`);
 
         return {
           text: candidateText,
@@ -100,7 +106,35 @@ export async function callLLM(
       }
 
       const status = response.status;
-      const isRetryable = status === 429 || (status >= 500 && status < 600);
+      const rawMessage =
+        errorJson?.error?.message ||
+        errorJson?.message ||
+        (typeof errorJson?.error === "string" ? errorJson.error : "") ||
+        `OpenRouter API returned HTTP ${status}: ${errorText}`;
+      console.error(`❌ [LLM Error] <- HTTP ${status} (${duration}ms): ${rawMessage}`);
+
+      const lowerMsg = rawMessage.toLowerCase();
+      const isQuotaError =
+        status === 402 ||
+        lowerMsg.includes("quota") ||
+        lowerMsg.includes("credit") ||
+        lowerMsg.includes("insufficient_quota") ||
+        lowerMsg.includes("billing") ||
+        lowerMsg.includes("payment required") ||
+        lowerMsg.includes("resource has been exhausted");
+
+      const isAuthError =
+        status === 401 ||
+        status === 403 ||
+        lowerMsg.includes("api key") ||
+        lowerMsg.includes("unauthorized") ||
+        lowerMsg.includes("forbidden");
+
+      // Quota and auth errors are NOT retryable - retrying only delays the failure and wastes time
+      const isRetryable =
+        !isQuotaError &&
+        !isAuthError &&
+        (status === 429 || (status >= 500 && status < 600));
 
       if (isRetryable && attempt < maxRetries) {
         attempt++;
@@ -110,12 +144,21 @@ export async function callLLM(
         continue;
       }
 
-      const errorMessage =
-        errorJson?.error?.message ||
-        errorJson?.message ||
-        `OpenRouter API returned HTTP ${status}: ${errorText}`;
-      const code = status === 429 ? "LLM_RATE_LIMITED" : "LLM_UNAVAILABLE";
-      throw new LLMError(errorMessage, code, status, errorJson);
+      let code = "LLM_UNAVAILABLE";
+      let friendlyMessage = rawMessage;
+
+      if (isQuotaError) {
+        code = "LLM_QUOTA_EXCEEDED";
+        friendlyMessage = `AI Quota Exceeded: Your OpenRouter credit balance is exhausted or API quota was reached (${rawMessage}). Please check your OpenRouter credits or API settings.`;
+      } else if (isAuthError) {
+        code = "LLM_AUTH_ERROR";
+        friendlyMessage = `AI Authentication Failed: Invalid or unauthorized API key (${rawMessage}). Please verify your OPENROUTER_API_KEY.`;
+      } else if (status === 429) {
+        code = "LLM_RATE_LIMITED";
+        friendlyMessage = `AI Service Rate Limited: The AI provider is temporarily busy. Please wait a moment and try again.`;
+      }
+
+      throw new LLMError(friendlyMessage, code, status, errorJson);
     } catch (err: any) {
       clearTimeout(timeoutId);
 

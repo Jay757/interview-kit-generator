@@ -29,7 +29,7 @@ export interface GenerateKitInput {
   options?: {
     llmCaller?: typeof callLLM;
     allowLocalFetch?: boolean;
-    onProgress?: (stage: GenerationStage) => void;
+    onProgress?: (stage: GenerationStage, partialData?: any) => Promise<void> | void;
   };
 }
 
@@ -202,8 +202,31 @@ export async function generateKit(input: GenerateKitInput): Promise<KitStructure
 
   const onProgress = input.options?.onProgress;
 
+  const roleInfo = parseRoleMetadata(trimmedJd);
+  const companyName =
+    roleInfo.company ||
+    (input.companyUrl ? parseCompanyFromUrl(input.companyUrl) : "") ||
+    "Target Company";
+
   // 1. Crawl company site (Phase 4)
-  onProgress?.("retrieving");
+  await onProgress?.("retrieving", {
+    source: {
+      company: companyName,
+      company_url: input.companyUrl ? input.companyUrl.trim() : "",
+      role: roleInfo.title || "Target Role",
+      location: roleInfo.location || "",
+      jd_chars: trimmedJd.length,
+      researched_at: new Date().toISOString(),
+      pages_used: [],
+    },
+    role: {
+      title: roleInfo.title || "Target Role",
+      seniority: roleInfo.seniority || "",
+      responsibilities: roleInfo.responsibilities,
+      requirements: [],
+    },
+  });
+
   let crawlResult: CrawlResult = {
     pagesUsed: [],
     pagesSkipped: [],
@@ -226,7 +249,24 @@ export async function generateKit(input: GenerateKitInput): Promise<KitStructure
   }
 
   // 2. Extract requirements from JD + grounded company brief (Phase 5)
-  onProgress?.("extracting");
+  await onProgress?.("extracting", {
+    source: {
+      company: companyName,
+      company_url: input.companyUrl ? input.companyUrl.trim() : "",
+      role: roleInfo.title || "Target Role",
+      location: roleInfo.location || "",
+      jd_chars: trimmedJd.length,
+      researched_at: new Date().toISOString(),
+      pages_used: crawlResult.pagesUsed || [],
+    },
+    role: {
+      title: roleInfo.title || "Target Role",
+      seniority: roleInfo.seniority || "",
+      responsibilities: roleInfo.responsibilities,
+      requirements: [],
+    },
+  });
+
   const [requirements, briefCandidate] = await Promise.all([
     extractRequirements(trimmedJd, { llmCaller: input.options?.llmCaller }),
     extractCompanyBrief(crawlResult.aboutText, crawlResult.hiringText, {
@@ -235,7 +275,19 @@ export async function generateKit(input: GenerateKitInput): Promise<KitStructure
   ]);
 
   // 3. Generate initial questions per requirement & category (Phase 6)
-  onProgress?.("generating_questions");
+  await onProgress?.("generating_questions", {
+    company_brief: {
+      summary: briefCandidate.summary,
+      what_they_do: briefCandidate.what_they_do,
+      sources: crawlResult.pagesUsed || [],
+    },
+    role: {
+      title: roleInfo.title || "Target Role",
+      seniority: roleInfo.seniority || "",
+      responsibilities: roleInfo.responsibilities,
+      requirements,
+    },
+  });
   const draftQuestions = await generateAllQuestions(
     requirements,
     crawlResult.hiringText,
@@ -243,7 +295,7 @@ export async function generateKit(input: GenerateKitInput): Promise<KitStructure
   );
 
   // 4. Deterministic coverage verification loop (Phase 7)
-  onProgress?.("verifying_coverage");
+  await onProgress?.("verifying_coverage");
   const { questions: coveredQuestions, coverage } = await runCoverageLoop(
     requirements,
     draftQuestions,
@@ -254,22 +306,17 @@ export async function generateKit(input: GenerateKitInput): Promise<KitStructure
   );
 
   // 5. Generate high-yield spaced repetition flashcards (Phase 6)
-  onProgress?.("generating_flashcards");
+  await onProgress?.("generating_flashcards");
   const flashcards = await generateFlashcards(coveredQuestions, {
     llmCaller: input.options?.llmCaller,
   });
 
   // 6. Deterministic schedule allocation (Phase 7)
-  onProgress?.("allocating_schedule");
+  await onProgress?.("allocating_schedule");
   const schedule = allocateSchedule(requirements, coveredQuestions, daysAvailable);
 
   // 7. Assemble final Kit object exactly matching Appendix A specifications
-  onProgress?.("assembling_kit");
-  const roleInfo = parseRoleMetadata(trimmedJd);
-  const companyName =
-    roleInfo.company ||
-    (input.companyUrl ? parseCompanyFromUrl(input.companyUrl) : "") ||
-    "Target Company";
+  await onProgress?.("assembling_kit");
 
   const rawKit: KitStructure = {
     source: {
@@ -301,6 +348,6 @@ export async function generateKit(input: GenerateKitInput): Promise<KitStructure
   // 8. Strict structural validation against Appendix A schema
   const validatedKit = assertValidKit(rawKit);
 
-  onProgress?.("completed");
+  await onProgress?.("completed");
   return validatedKit;
 }

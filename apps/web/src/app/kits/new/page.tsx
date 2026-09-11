@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Navbar } from "../../../components/Navbar";
+import { Toast, ToastProps } from "../../../components/ui/Toast";
 import { useAuth } from "../../../context/AuthContext";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
@@ -67,6 +68,7 @@ export default function NewKitPage() {
   const [loading, setLoading] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [apiError, setApiError] = useState<{ code: string; message: string } | null>(null);
+  const [toastNotification, setToastNotification] = useState<ToastProps | null>(null);
 
   // Batch Mode state
   const [batchRawText, setBatchRawText] = useState("");
@@ -156,18 +158,44 @@ export default function NewKitPage() {
         // Redirect to kit detail page for active progress tracking
         router.push(`/kits/${data.kitId || data.kit?._id}`);
       } else {
+        const errMsg = data.error?.message || "Failed to start kit generation. Please try again.";
+        const errCode = data.error?.code || "SUBMISSION_FAILED";
         setApiError({
-          code: data.error?.code || "SUBMISSION_FAILED",
-          message: data.error?.message || "Failed to start kit generation. Please try again.",
+          code: errCode,
+          message: errMsg,
         });
         setLoading(false);
+
+        const isQuota =
+          errCode === "LLM_QUOTA_EXCEEDED" ||
+          errMsg.toLowerCase().includes("quota") ||
+          errMsg.toLowerCase().includes("credit") ||
+          errMsg.toLowerCase().includes("402");
+
+        setToastNotification({
+          type: "error",
+          badge: isQuota ? "Quota Reached" : "Error",
+          title: isQuota ? "AI API Quota Limit Reached" : "Kit Generation Failed",
+          message: isQuota
+            ? "Your OpenRouter credits are exhausted or rate quota has been reached. Please check your credit balance."
+            : errMsg,
+          onClose: () => setToastNotification(null),
+        });
       }
     } catch (err: any) {
+      const msg = err.message || "Could not connect to the API server.";
       setApiError({
         code: "NETWORK_ERROR",
-        message: err.message || "Could not connect to the API server.",
+        message: msg,
       });
       setLoading(false);
+      setToastNotification({
+        type: "error",
+        badge: "Network Error",
+        title: "Connection Failed",
+        message: msg,
+        onClose: () => setToastNotification(null),
+      });
     }
   };
 
@@ -275,39 +303,39 @@ export default function NewKitPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#090a0f] text-zinc-100 bg-grid-architectural">
+    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-[#08090d] dark:text-zinc-100 transition-colors duration-200">
       <Navbar />
 
       <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header Breadcrumbs & Title */}
         <div className="mb-8">
-          <div className="flex items-center gap-2 text-xs text-zinc-400 mb-2 font-mono">
-            <a href="/kits" className="hover:text-zinc-200 transition-colors">
+          <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400 mb-2 font-mono">
+            <a href="/kits" className="hover:text-slate-900 dark:hover:text-zinc-200 transition-colors">
               Kits
             </a>
             <span>/</span>
-            <span className="text-amber-400">New Generator</span>
+            <span className="text-amber-500 dark:text-amber-400 font-semibold">New Generator</span>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
                 Generate Interview Prep Kit
               </h1>
-              <p className="mt-1 text-sm text-zinc-400">
+              <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">
                 Ground questions in your exact job description and live company hiring intelligence.
               </p>
             </div>
 
             {/* Mode Toggle: Single vs Multi-Role Batch */}
-            <div className="flex items-center p-1 bg-zinc-900/90 border border-zinc-800 rounded-lg self-start">
+            <div className="flex items-center p-1 bg-slate-200/80 dark:bg-zinc-900/90 border border-slate-300/80 dark:border-zinc-800 rounded-lg self-start">
               <button
                 type="button"
                 onClick={() => setMode("single")}
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
                   mode === "single"
                     ? "bg-amber-500 text-zinc-950 font-semibold shadow-sm"
-                    : "text-zinc-400 hover:text-zinc-200"
+                    : "text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200"
                 }`}
               >
                 Single Role
@@ -318,7 +346,7 @@ export default function NewKitPage() {
                 className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
                   mode === "batch"
                     ? "bg-amber-500 text-zinc-950 font-semibold shadow-sm"
-                    : "text-zinc-400 hover:text-zinc-200"
+                    : "text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200"
                 }`}
               >
                 Multi-Role Batch
@@ -331,10 +359,10 @@ export default function NewKitPage() {
         {mode === "single" && (
           <form onSubmit={handleSingleSubmit} className="space-y-6">
             {/* Quick Sample Selector Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg bg-zinc-900/60 border border-zinc-800/80">
-              <div className="flex items-center gap-2 text-xs text-zinc-400">
-                <span className="font-mono text-amber-400">✦</span>
-                <span>Instant Pre-fill:</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg bg-white dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800/80 shadow-sm">
+              <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-zinc-400">
+                <span className="font-mono text-amber-500 dark:text-amber-400">✦</span>
+                <span className="font-medium">Instant Pre-fill:</span>
               </div>
               <div className="flex flex-wrap gap-2">
                 {(Object.keys(SAMPLE_JDS) as Array<keyof typeof SAMPLE_JDS>).map((k) => (
@@ -342,7 +370,7 @@ export default function NewKitPage() {
                     key={k}
                     type="button"
                     onClick={() => loadSample(k)}
-                    className="px-2.5 py-1 text-xs rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 transition-colors"
+                    className="px-2.5 py-1 text-xs font-medium rounded bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-zinc-700/60 transition-colors"
                   >
                     {SAMPLE_JDS[k].name}
                   </button>
@@ -351,12 +379,12 @@ export default function NewKitPage() {
             </div>
 
             {/* Job Description Card */}
-            <div className="rounded-xl border border-zinc-800/90 bg-[#0f1117] p-5 shadow-sm space-y-3">
+            <div className="rounded-xl border border-slate-200 dark:border-zinc-800/90 bg-white dark:bg-[#0f1117] p-5 shadow-sm space-y-3">
               <div className="flex items-center justify-between">
-                <label htmlFor="jd-input" className="block text-sm font-semibold text-zinc-200">
-                  Job Description <span className="text-amber-400">*</span>
+                <label htmlFor="jd-input" className="block text-sm font-semibold text-slate-800 dark:text-zinc-200">
+                  Job Description <span className="text-amber-500 dark:text-amber-400">*</span>
                 </label>
-                <div className="flex items-center gap-3 text-xs font-mono text-zinc-400">
+                <div className="flex items-center gap-3 text-xs font-mono text-slate-500 dark:text-zinc-400">
                   <span>{jd.length} chars</span>
                   <span>~{Math.max(1, Math.round(jd.trim().split(/\s+/).filter(Boolean).length))} words</span>
                 </div>
@@ -368,10 +396,10 @@ export default function NewKitPage() {
                 value={jd}
                 onChange={(e) => setJd(e.target.value)}
                 placeholder="Paste complete job description, responsibilities, and required competencies here..."
-                className="w-full rounded-lg border border-zinc-700/60 bg-zinc-950/80 px-4 py-3 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 font-sans leading-relaxed resize-y"
+                className="w-full rounded-lg border border-slate-300 dark:border-zinc-700/60 bg-slate-50/50 dark:bg-zinc-950/80 px-4 py-3 text-sm text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 font-sans leading-relaxed resize-y"
               />
 
-              <div className="flex items-center justify-between text-xs text-zinc-400">
+              <div className="flex items-center justify-between text-xs text-slate-500 dark:text-zinc-400">
                 <p>
                   Tip: Include required skills, responsibilities, and seniority for optimal question alignment.
                 </p>
@@ -379,7 +407,7 @@ export default function NewKitPage() {
                   <button
                     type="button"
                     onClick={() => setJd("")}
-                    className="text-zinc-400 hover:text-red-400 transition-colors"
+                    className="text-slate-500 dark:text-zinc-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
                   >
                     Clear
                   </button>
@@ -390,12 +418,12 @@ export default function NewKitPage() {
             {/* Company Intelligence & Timeline Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Target Company URL */}
-              <div className="rounded-xl border border-zinc-800/90 bg-[#0f1117] p-5 shadow-sm space-y-2.5">
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800/90 bg-white dark:bg-[#0f1117] p-5 shadow-sm space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <label htmlFor="company-url" className="block text-sm font-semibold text-zinc-200">
+                  <label htmlFor="company-url" className="block text-sm font-semibold text-slate-800 dark:text-zinc-200">
                     Target Company Website
                   </label>
-                  <span className="text-[11px] font-mono text-zinc-400">Optional</span>
+                  <span className="text-[11px] font-mono text-slate-400 dark:text-zinc-500">Optional</span>
                 </div>
 
                 <div className="relative">
@@ -405,22 +433,22 @@ export default function NewKitPage() {
                     value={companyUrl}
                     onChange={(e) => setCompanyUrl(e.target.value)}
                     placeholder="https://company.com"
-                    className="w-full rounded-lg border border-zinc-700/60 bg-zinc-950/80 px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
+                    className="w-full rounded-lg border border-slate-300 dark:border-zinc-700/60 bg-slate-50/50 dark:bg-zinc-950/80 px-4 py-2.5 text-sm text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
                   />
                 </div>
 
-                <p className="text-xs text-zinc-400 leading-normal">
+                <p className="text-xs text-slate-500 dark:text-zinc-400 leading-normal">
                   Our crawler retrieves verified public hiring stages, culture signals, and company briefs without hallucinating.
                 </p>
               </div>
 
               {/* Timeline Days */}
-              <div className="rounded-xl border border-zinc-800/90 bg-[#0f1117] p-5 shadow-sm space-y-2.5">
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800/90 bg-white dark:bg-[#0f1117] p-5 shadow-sm space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <label htmlFor="days-input" className="block text-sm font-semibold text-zinc-200">
+                  <label htmlFor="days-input" className="block text-sm font-semibold text-slate-800 dark:text-zinc-200">
                     Interview Timeline
                   </label>
-                  <span className="text-xs font-mono font-medium text-amber-400">
+                  <span className="text-xs font-mono font-medium text-amber-500 dark:text-amber-400">
                     {days} {days === 1 ? "Day" : "Days"} Available
                   </span>
                 </div>
@@ -434,8 +462,8 @@ export default function NewKitPage() {
                       onClick={() => setDays(d)}
                       className={`py-2 text-xs font-medium rounded-lg border transition-all ${
                         days === d
-                          ? "bg-amber-500/10 border-amber-500 text-amber-400 font-semibold"
-                          : "bg-zinc-950/80 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700"
+                          ? "bg-amber-500/10 border-amber-500 text-amber-600 dark:text-amber-400 font-semibold"
+                          : "bg-slate-50 dark:bg-zinc-950/80 border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 hover:border-slate-300 dark:hover:border-zinc-700"
                       }`}
                     >
                       {d === 1 ? "1d (Cram)" : `${d}d`}
@@ -444,7 +472,7 @@ export default function NewKitPage() {
                 </div>
 
                 <div className="flex items-center justify-between pt-1">
-                  <span className="text-xs text-zinc-400">Custom Day Budget:</span>
+                  <span className="text-xs text-slate-500 dark:text-zinc-400">Custom Day Budget:</span>
                   <input
                     id="days-input"
                     type="number"
@@ -452,7 +480,7 @@ export default function NewKitPage() {
                     max={60}
                     value={days}
                     onChange={(e) => setDays(parseInt(e.target.value, 10) || 1)}
-                    className="w-20 rounded border border-zinc-700/60 bg-zinc-950 px-2.5 py-1 text-xs text-right font-mono text-zinc-100 focus:border-amber-500 focus:outline-none"
+                    className="w-20 rounded border border-slate-300 dark:border-zinc-700/60 bg-white dark:bg-zinc-950 px-2.5 py-1 text-xs text-right font-mono text-slate-900 dark:text-zinc-100 focus:border-amber-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -623,6 +651,8 @@ export default function NewKitPage() {
             )}
           </div>
         )}
+
+        {toastNotification && <Toast {...toastNotification} />}
       </main>
     </div>
   );

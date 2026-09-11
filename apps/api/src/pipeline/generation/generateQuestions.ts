@@ -161,8 +161,14 @@ export async function generateAllQuestions(
   hiringProcessContext?: string | null,
   options: GenerationOptions = {}
 ): Promise<Question[]> {
-  const assembledQuestions: Question[] = [];
-  let questionCounter = 1;
+  interface QuestionTask {
+    req: Requirement;
+    cat: QuestionCategory;
+    index: number;
+  }
+
+  const tasks: QuestionTask[] = [];
+  let taskIdx = 0;
 
   for (const req of requirements) {
     // Determine category sequence per requirement
@@ -192,38 +198,77 @@ export async function generateAllQuestions(
     }
 
     for (const cat of categoriesToGenerate) {
+      tasks.push({ req, cat, index: taskIdx++ });
+    }
+  }
+
+  if (tasks.length === 0) {
+    return [];
+  }
+
+  console.log(
+    `🚀 [Question Generation] Dispatching ${tasks.length} category tasks across ${requirements.length} requirements (concurrency=3)...`
+  );
+  const startGenTime = Date.now();
+
+  // Execute with concurrency limit of 3 to drastically speed up generation
+  const taskResults: Array<{ task: QuestionTask; candidates: QuestionCandidate[] }> = new Array(
+    tasks.length
+  );
+  let nextIndex = 0;
+  const concurrencyLimit = 3;
+
+  const workers = Array.from({ length: Math.min(concurrencyLimit, tasks.length) }, async () => {
+    while (nextIndex < tasks.length) {
+      const current = nextIndex++;
+      const task = tasks[current];
       try {
         const candidates = await generateQuestionsForRequirement(
-          req,
-          cat,
+          task.req,
+          task.cat,
           hiringProcessContext,
           options
         );
-
-        for (const candidate of candidates) {
-          const q: Question = {
-            id: `q${questionCounter++}`,
-            requirement_ids: [req.id],
-            category: cat,
-            prompt: candidate.prompt,
-            answer_outline: candidate.answer_outline,
-            difficulty: candidate.difficulty,
-            state: "generated",
-          };
-
-          // Validate individual question against Appendix A schema
-          QuestionSchema.parse(q);
-          assembledQuestions.push(q);
-        }
+        taskResults[current] = { task, candidates };
       } catch (err) {
         // Individual requirement failure does not abort the entire batch
         console.warn(
-          `Skipped question generation for requirement ${req.id} in category ${cat}:`,
+          `Skipped question generation for requirement ${task.req.id} in category ${task.cat}:`,
           err
         );
+        taskResults[current] = { task, candidates: [] };
       }
     }
+  });
+
+  await Promise.all(workers);
+
+  // Deterministically assemble questions in stable requirement/category sequence
+  const assembledQuestions: Question[] = [];
+  let questionCounter = 1;
+
+  for (const res of taskResults) {
+    if (!res || !res.candidates) continue;
+    for (const candidate of res.candidates) {
+      const q: Question = {
+        id: `q${questionCounter++}`,
+        requirement_ids: [res.task.req.id],
+        category: res.task.cat,
+        prompt: candidate.prompt,
+        answer_outline: candidate.answer_outline,
+        difficulty: candidate.difficulty,
+        state: "generated",
+      };
+
+      // Validate individual question against Appendix A schema
+      QuestionSchema.parse(q);
+      assembledQuestions.push(q);
+    }
   }
+
+  console.log(
+    `✅ [Question Generation] Finished in ${Date.now() - startGenTime}ms! Produced ${assembledQuestions.length} questions.`
+  );
 
   return assembledQuestions;
 }

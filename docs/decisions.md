@@ -289,3 +289,28 @@ This document tracks technical decisions, trade-offs, and heuristics chosen thro
 - **Reasoning**: Allows history to accumulate across multiple study sessions. Enables dual coverage analysis:
   1. Direct flashcard coverage (practiced vs untouched).
   2. Requirement coverage: maps practiced flashcards back to `requirement_ids` to show which job description requirements have received active recall reinforcement.
+
+---
+
+## 2026-09-10: Phase 13 Decisions — Section 10 Edge Cases & Robustness Pass
+
+### Edge Cases Audit & Batch CLI Classification Matrix
+
+Per Section 10 of the brief, we conducted a comprehensive robustness audit across all 8 failure modes. Each case was verified to degrade gracefully without crashing the app or the batch CLI:
+
+| # | Edge Case | Actual Runtime Behavior | Batch CLI Classification |
+|---|---|---|---|
+| 1 | **Company URL invalid, 404, or times out** | SSRF validation intercepts invalid schemes/private IPs. `fetchWithRetry` catches 404s/timeouts via 6-second `AbortController`. Crawler returns `{ pagesUsed: [], aboutText: "", hiringText: null }`. Pipeline generates role from JD only and writes honest empty brief. | `status: "ok"` (partial research is valid) |
+| 2 | **Company site has no discoverable hiring/about page** | Crawler ingests homepage, ranks links, finds 0 hiring links. Returns `{ pagesUsed: [homepage], hiringText: null }`. Brief honestly reports no public hiring process without inventing culture facts (Rule 4). | `status: "ok"` (partial research is valid) |
+| 3 | **Job description is a two-line stub** | LLM extracts minimal requirements (1–2). Question generator produces targeted questions for available requirements. Schedule allocation distributes them with minimum 15-minute blocks. Passes `KitZodSchema`. | `status: "ok"` (valid minimalist kit produced) |
+| 4 | **Public discussion turns up nothing at all** | External discussion search returns null/empty. `company_brief.sources` remains honest empty array, avoiding hallucinated Glassdoor/Reddit ratings. | `status: "ok"` (truthful empty state per Rule 4) |
+| 5 | **Model returns invalid JSON or incomplete kit** | `callLLM` strips markdown fences and validates JSON. `extractRequirements` and `generateQuestions` execute structured retry with schema error feedback. If total failure occurs and no kit can be generated, batch CLI records `{ status: "failed", error: { code, message } }`. | `status: "failed"` (only if no kit producible at all) |
+| 6 | **LLM provider rate-limits (429) or briefly fails (5xx)** | `callLLM` applies exponential backoff (1s, 2s, 4s) with randomized jitter up to 3 retries. In `generateAllQuestions`, requirement-level failure isolation ensures a single transient failure does not abort the entire batch. | `status: "ok"` (if partial questions generated) / `status: "failed"` (if LLM completely down) |
+| 7 | **Duplicate submission within 15 minutes** | Computes deterministic SHA-256 idempotency hash (`userId + jd + url + days`). If active generating or completed kit exists within 15 minutes, returns existing kit immediately (`202` or `200`) without re-running pipeline. | `status: "ok"` (idempotent retrieval) |
+| 8 | **1-day or 60-day schedule requested** | `allocateSchedule` clamps days to $\ge 1$. For 1 day: packs questions into single intensive session with valid minutes. For 60 days: fills initial days with priority questions, and remaining days with spaced-repetition recall drills without NaN minutes or broken days. | `status: "ok"` (valid Appendix A schedule) |
+
+### Universal External Call Timeouts & Structured Errors
+- **Fetch Timeout**: 6000ms `AbortController` timeout enforced on all web scraping calls (`apps/api/src/pipeline/retrieval/fetcher.ts`).
+- **LLM Timeout**: 30000ms `AbortController` timeout enforced on all OpenRouter API requests (`apps/api/src/pipeline/llm/client.ts`).
+- **Structured Errors**: Express 404 catch-all and global error middleware in `apps/api/src/app.ts` guarantee all error responses adhere to `{ error: { code, message } }`, never exposing internal stack traces to the client.
+

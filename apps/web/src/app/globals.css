@@ -3,43 +3,78 @@
 @tailwind utilities;
 
 :root {
-  --color-canvas-base: #090a0f;
-  --color-canvas-surface: #0f1117;
-  --color-canvas-subtle: #161922;
+  --color-canvas-base: #f8fafc;
+  --color-canvas-surface: #ffffff;
+  --color-canvas-subtle: #f1f5f9;
+  --color-canvas-border: #e2e8f0;
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94a3b8;
+}
+
+.dark {
+  --color-canvas-base: #08090d;
+  --color-canvas-surface: #10131d;
+  --color-canvas-subtle: #151824;
   --color-canvas-border: #272c3d;
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
 }
 
 * {
   box-sizing: border-box;
 }
 
-html,
+html {
+  color-scheme: dark light;
+}
+
 body {
   margin: 0;
   padding: 0;
-  background-color: #090a0f;
-  color: #f1f5f9;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
 
-/* Subtle architectural grid pattern background without gaudy gradients */
-.bg-grid-architectural {
-  background-size: 32px 32px;
+/* Subtle architectural grid pattern background for Dark Mode */
+.dark .bg-grid-architectural {
+  background-size: 36px 36px;
   background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
+/* Crisp grid pattern background for Light Mode */
+.bg-grid-architectural {
+  background-size: 36px 36px;
+  background-image: 
+    linear-gradient(to right, rgba(15, 23, 42, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.04) 1px, transparent 1px);
+}
+
+/* Dot grid variation */
+.bg-dot-grid {
+  background-size: 24px 24px;
+  background-image: radial-gradient(circle, rgba(148, 163, 184, 0.2) 1px, transparent 1px);
+}
+.dark .bg-dot-grid {
+  background-size: 24px 24px;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
 }
 
 /* Precision hairline borders */
 .border-hairline {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
+.border-hairline-light {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
 
 .border-hairline-accent {
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  border: 1px solid rgba(245, 158, 11, 0.35);
 }
 
 /* Custom subtle scrollbar */
@@ -49,15 +84,23 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #090a0f;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #272c3d;
+  background: #cbd5e1;
   border-radius: 3px;
 }
 
+.dark ::-webkit-scrollbar-thumb {
+  background: #272c3d;
+}
+
 ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
   background: #3a4259;
 }
 
@@ -76,3 +119,79 @@ body {
   transform: rotateY(180deg);
 }
 
+/* Text Shimmer Effect */
+.text-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.6) 0%,
+    rgba(255, 255, 255, 1) 50%,
+    rgba(255, 255, 255, 0.6) 100%
+  );
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmer 3s linear infinite;
+}
+
+.text-shimmer-light {
+  background: linear-gradient(
+    90deg,
+    #1e293b 0%,
+    #4f46e5 50%,
+    #1e293b 100%
+  );
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmer 3s linear infinite;
+}
+
+/* ── Keyframe: shimmer ─────────────────── */
+@keyframes shimmer {
+  to {
+    background-position: 200% center;
+  }
+}
+
+/* ── Keyframe: fade-in (used by animate-in) ─── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Keyframe: slide-in-from-top ──────────── */
+@keyframes slideInFromTop {
+  from { transform: translateY(-8px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* ── Keyframe: slide-in-from-bottom ──────── */
+@keyframes slideInFromBottom {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+/* ── Tailwind-animate compatibility shims ─ */
+.animate-in {
+  animation-fill-mode: both;
+}
+.fade-in {
+  animation: fadeIn 0.3s ease-out both;
+}
+.slide-in-from-top-2 {
+  animation: slideInFromTop 0.3s ease-out both;
+}
+.slide-in-from-top-3 {
+  animation: slideInFromTop 0.3s ease-out both;
+}
+.slide-in-from-bottom-2 {
+  animation: slideInFromBottom 0.3s ease-out both;
+}
+.duration-200 {
+  animation-duration: 0.2s;
+}
+.duration-300 {
+  animation-duration: 0.3s;
+}
