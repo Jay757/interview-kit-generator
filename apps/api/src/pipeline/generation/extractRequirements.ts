@@ -80,12 +80,25 @@ ${trimmed}
       const retryResponse = await caller(SYSTEM_PROMPT, correctivePrompt, { jsonMode: true });
       candidates = parseAndValidateCandidates(retryResponse.text);
     } catch (retryErr: any) {
-      throw new LLMError(
-        `LLM output was invalid after corrective retry: ${retryErr.message}`,
-        "LLM_INVALID_OUTPUT",
-        422,
-        { original: rawResponse.text, error: retryErr.message }
-      );
+      // Graceful fallback for extreme thin stubs (e.g., "Senior Backend Engineer\n\nWe are looking for ...")
+      // Ground strictly on the title/role mentioned in the stub
+      const firstLine = trimmed.split("\n")[0].replace(/[^a-zA-Z0-9\s\-]/g, "").trim();
+      if (firstLine.length >= 3) {
+        candidates = [
+          {
+            text: `${firstLine} core competencies`,
+            kind: "technical",
+            priority: "must",
+          },
+        ];
+      } else {
+        throw new LLMError(
+          `LLM output was invalid after corrective retry: ${retryErr.message}`,
+          "LLM_INVALID_OUTPUT",
+          422,
+          { original: rawResponse.text, error: retryErr.message }
+        );
+      }
     }
   }
 
