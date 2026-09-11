@@ -396,6 +396,28 @@ router.get("/:id/status", async (req: Request, res: Response) => {
       return;
     }
 
+    // Auto-detect stalled/interrupted generation (e.g. server was restarted mid-process)
+    if (
+      kit.status === "generating" &&
+      kit.updatedAt &&
+      Date.now() - new Date(kit.updatedAt).getTime() > 180000
+    ) {
+      kit.status = "failed";
+      kit.errorCode = "GENERATION_TIMED_OUT";
+      kit.errorMessage =
+        "Generation was interrupted or timed out. Please try creating a new kit.";
+      await Kit.updateOne(
+        { _id: kit._id },
+        {
+          $set: {
+            status: "failed",
+            errorCode: "GENERATION_TIMED_OUT",
+            errorMessage: kit.errorMessage,
+          },
+        }
+      );
+    }
+
     res.status(200).json({
       kitId: kit._id,
       status: kit.status,
@@ -461,6 +483,28 @@ router.get("/:id", async (req: Request, res: Response) => {
         },
       });
       return;
+    }
+
+    // Auto-detect stalled/interrupted generation
+    if (
+      kit.status === "generating" &&
+      kit.updatedAt &&
+      Date.now() - new Date(kit.updatedAt).getTime() > 180000
+    ) {
+      kit.status = "failed";
+      kit.errorCode = "GENERATION_TIMED_OUT";
+      kit.errorMessage =
+        "Generation was interrupted or timed out. Please try creating a new kit.";
+      await Kit.updateOne(
+        { _id: kit._id },
+        {
+          $set: {
+            status: "failed",
+            errorCode: "GENERATION_TIMED_OUT",
+            errorMessage: kit.errorMessage,
+          },
+        }
+      );
     }
 
     res.status(200).json({
