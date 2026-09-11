@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
+import mongoose from "mongoose";
 import session, { Store } from "express-session";
 import MongoStore from "connect-mongo";
 import authRouter from "./routes/auth.js";
@@ -42,12 +43,12 @@ export function createApp(options?: CreateAppOptions) {
 
   app.use(express.json());
 
-  // Session configuration
+  // Session configuration - share existing Mongoose connection to avoid duplicate TLS handshakes
   const mongoUri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/trao_dev";
   const store =
     options?.sessionStore ||
     MongoStore.create({
-      mongoUrl: mongoUri,
+      clientPromise: mongoose.connection.asPromise().then((m) => m.getClient()),
       collectionName: "sessions",
       ttl: 14 * 24 * 60 * 60, // 14 days
       autoRemove: "native",
