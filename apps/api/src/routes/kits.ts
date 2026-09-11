@@ -1019,6 +1019,32 @@ router.post("/:id/practice/evaluate-answer", async (req: Request, res: Response)
       return;
     }
 
+    // Anti-cheat / Prompt-echo guard: If candidate pasted the prompt back, score honestly as No Hire
+    const cleanedAnswer = user_answer.trim().toLowerCase();
+    const cleanedPrompt = question.prompt.trim().toLowerCase();
+    if (
+      cleanedAnswer === cleanedPrompt ||
+      (cleanedPrompt.length > 30 && cleanedAnswer.includes(cleanedPrompt.slice(0, 50)))
+    ) {
+      res.status(200).json({
+        success: true,
+        question_id,
+        evaluation: {
+          score: 12,
+          verdict: "No Hire",
+          summary: "Candidate repeated the interview question prompt without providing an architectural answer or solution.",
+          strengths: ["Scenario prompt was accurately cited."],
+          improvements: [
+            "Do not paste or echo the question prompt back into the response field.",
+            "Outline your concrete technical approach, architecture boundaries, schemas, and trade-offs.",
+            "Demonstrate hands-on domain mastery and real-world production considerations."
+          ],
+          modelAnswer: question.answer_outline
+        }
+      });
+      return;
+    }
+
     const systemPrompt = `You are a Principal Technical Interview Bar Raiser evaluating a candidate's answer.
 Analyze the candidate's written response against the interview question and industry benchmarks.
 Return STRICT JSON ONLY, with this schema:
@@ -1045,25 +1071,31 @@ Candidate's Answer:
     try {
       const llmRes = await callLLM(systemPrompt, userPrompt, { jsonMode: true, temperature: 0.2 });
       evaluationResult = JSON.parse(llmRes.text);
-    } catch (llmErr) {
-      const words = user_answer.trim().split(/\s+/).length;
-      const computedScore = Math.min(94, Math.max(50, Math.round(words * 0.75) + 42));
-      evaluationResult = {
-        score: computedScore,
-        verdict: computedScore >= 82 ? "Hire" : computedScore >= 68 ? "Leaning Hire" : "Needs Improvement",
-        summary: "Response evaluated based on architectural coverage, domain depth, and technical trade-offs.",
-        strengths: [
-          "Directly addresses the primary question requirements.",
-          "Demonstrates solid operational intuition and core conceptual grasp.",
-        ],
-        improvements: [
-          "Incorporate explicit numerical benchmarks (e.g. latency percentiles, throughput targets, timeout bounds).",
-          "Deepen discussion on edge failure scenarios, cascading partition handling, and monitoring indicators.",
-        ],
-        modelAnswer: question.answer_outline
-          ? `Exemplar Model Answer Outline:\n${question.answer_outline}`
-          : "An elite response structures: 1) System constraints and SLAs, 2) Idempotency tokens and state machine flow, 3) Failure domains and failover mechanisms, and 4) Observability telemetry.",
-      };
+    } catch (llmErr: any) {
+      console.error("[evaluate-answer] LLM call failed:", llmErr?.message);
+      const isQuota =
+        llmErr?.status === 429 ||
+        llmErr?.message?.includes("quota") ||
+        llmErr?.message?.includes("Rate limit");
+
+      if (isQuota) {
+        res.status(429).json({
+          error: {
+            code: "LLM_RATE_LIMIT",
+            message:
+              "AI Quota Exceeded: Your OpenRouter free daily quota has been reached (Rate limit exceeded: free-models-per-day). Please use an API key with active credits or wait for the daily reset.",
+          },
+        });
+        return;
+      }
+
+      res.status(500).json({
+        error: {
+          code: "LLM_ERROR",
+          message: llmErr?.message || "Failed to evaluate answer via AI.",
+        },
+      });
+      return;
     }
 
     res.status(200).json({
