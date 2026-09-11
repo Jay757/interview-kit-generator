@@ -79,18 +79,18 @@ export function ComparisonSection({ theme }: ComparisonSectionProps) {
       >
         <div className="min-w-[620px]">
           {/* Header Row */}
-          <div className="grid grid-cols-12 p-4 sm:p-6 border-b border-white/[0.06] text-xs font-mono font-bold">
-            <div className="col-span-4 text-zinc-400">PIPELINE CAPABILITY</div>
-            <div className="col-span-4 text-red-400 flex items-center gap-1.5">
+          <div className="grid grid-cols-12 p-4 sm:p-6 border-b border-slate-200 dark:border-white/[0.06] text-xs font-mono font-bold">
+            <div className="col-span-4 text-slate-800 dark:text-zinc-300">PIPELINE CAPABILITY</div>
+            <div className="col-span-4 text-red-500 dark:text-red-400 flex items-center gap-1.5">
               <XCircle className="w-4 h-4 shrink-0" /> Generic ChatGPT / Claude
             </div>
-            <div className="col-span-4 text-emerald-400 flex items-center gap-1.5">
+            <div className="col-span-4 text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4 shrink-0" /> Trao AI Prep Kit
             </div>
           </div>
 
           {/* Body Rows */}
-          <div className="divide-y divide-white/[0.04] text-xs sm:text-sm">
+          <div className="divide-y divide-slate-200 dark:divide-white/[0.04] text-xs sm:text-sm">
             {COMPARISON_ROWS.map((row, i) => (
               <div
                 key={i}
@@ -99,11 +99,11 @@ export function ComparisonSection({ theme }: ComparisonSectionProps) {
                   theme === "dark" ? "hover:bg-white/[0.02]" : "hover:bg-slate-50"
                 )}
               >
-                <div className="col-span-4 font-semibold text-xs sm:text-sm">{row.feature}</div>
-                <div className="col-span-4 text-xs text-zinc-400 leading-relaxed pr-2">
+                <div className="col-span-4 font-semibold text-xs sm:text-sm text-slate-900 dark:text-zinc-100">{row.feature}</div>
+                <div className="col-span-4 text-xs text-slate-600 dark:text-zinc-400 leading-relaxed pr-2">
                   {row.chatgpt}
                 </div>
-                <div className="col-span-4 text-xs text-emerald-400 font-medium leading-relaxed">
+                <div className="col-span-4 text-xs text-emerald-600 dark:text-emerald-400 font-medium leading-relaxed">
                   {row.trao}
                 </div>
               </div>

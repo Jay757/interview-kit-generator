@@ -13,18 +13,18 @@ interface CoverageMatrixTabProps {
 export function CoverageMatrixTab({ requirements, theme }: CoverageMatrixTabProps) {
   return (
     <div className="space-y-6 animate-fadeIn">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-white/[0.06]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200 dark:border-white/[0.06]">
         <div>
-          <h4 className="text-sm sm:text-base font-bold flex items-center gap-2">
+          <h4 className="text-sm sm:text-base font-bold flex items-center gap-2 text-slate-900 dark:text-white">
             <ShieldCheck className="w-5 h-5 text-emerald-500 shrink-0" />
             Semantic Requirement Extraction & Coverage Gate
           </h4>
-          <p className="text-xs text-zinc-500 mt-0.5">
+          <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
             Extracted from raw job posting. Second-pass loop confirmed 0 uncovered requirements.
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="px-2.5 py-1 rounded bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 text-xs font-mono font-bold">
+          <span className="px-2.5 py-1 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-mono font-bold">
             Coverage: 100% ({requirements.length}/{requirements.length} Mapped)
           </span>
         </div>

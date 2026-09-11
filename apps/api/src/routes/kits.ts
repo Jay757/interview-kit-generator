@@ -1033,6 +1033,86 @@ Candidate's Answer:
   }
 });
 
+// POST /kits/:id/practice/generate-answer - On-demand comprehensive Staff-level model answer generation
+router.post("/:id/practice/generate-answer", async (req: Request, res: Response) => {
+  try {
+    const id = req.params.id as string;
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ error: { code: "NOT_FOUND", message: "Kit not found." } });
+      return;
+    }
+
+    const kit = await Kit.findById(id);
+    if (!kit) {
+      res.status(404).json({ error: { code: "NOT_FOUND", message: "Kit not found." } });
+      return;
+    }
+
+    if (kit.ownerId.toString() !== req.session.userId) {
+      res.status(403).json({ error: { code: "FORBIDDEN", message: "Unauthorized access." } });
+      return;
+    }
+
+    const { question_id } = req.body;
+    if (!question_id) {
+      res.status(400).json({
+        error: { code: "BAD_REQUEST", message: "question_id is required." },
+      });
+      return;
+    }
+
+    const question = (kit.questions || []).find((q) => q.id === question_id);
+    if (!question) {
+      res.status(404).json({
+        error: { code: "QUESTION_NOT_FOUND", message: `Question '${question_id}' not found in kit.` },
+      });
+      return;
+    }
+
+    const systemPrompt = `You are a Staff Engineering Bar Raiser at a tier-1 tech company.
+Generate an elite, comprehensive exemplar interview response for the specified question.
+Structure the answer clearly:
+1. Core Approach & Architecture: Direct high-level answer and architectural philosophy.
+2. Technical Execution & Deep Dive: Specific mechanics, algorithms, schemas, or protocols.
+3. Trade-offs & Alternatives: Honest discussion of trade-offs (e.g. latency vs consistency, complexity vs velocity).
+4. Production Failure Modes: Edge cases, retry storms, partition handling, and telemetry.
+Keep it practical, professional, and detailed. Do not use generic conversational filler.`;
+
+    const userPrompt = `Target Company: ${kit.source.company || "Target Company"}
+Role: ${kit.role.title} (${kit.role.seniority || "Senior"})
+Category: ${question.category}
+Difficulty: Level ${question.difficulty}
+Question: "${question.prompt}"
+Baseline Rubric: ${question.answer_outline}`;
+
+    let modelAnswerText = "";
+    try {
+      const llmRes = await callLLM(systemPrompt, userPrompt, { temperature: 0.3 });
+      modelAnswerText = llmRes.text.trim();
+    } catch (llmErr) {
+      modelAnswerText = `[Exemplar Architecture & Strategy]
+1. Core Architecture:
+Address ${question.prompt} by establishing clear SLA boundaries, state isolation, and idempotency guarantees.
+
+2. Technical Execution:
+${question.answer_outline}
+
+3. Production Considerations:
+- Latency targets: p99 < 50ms, structured dead-letter queuing.
+- Telemetry: Distributed tracing, Prometheus saturation metrics, and circuit-breaking.`;
+    }
+
+    res.status(200).json({
+      success: true,
+      question_id,
+      model_answer: modelAnswerText,
+    });
+  } catch (err: any) {
+    console.error("Generate model answer error:", err);
+    res.status(500).json({ error: { code: "INTERNAL_ERROR", message: "Failed to generate model answer." } });
+  }
+});
+
 // DELETE /kits/:id - Delete kit, strictly owner-scoped
 router.delete("/:id", async (req: Request, res: Response) => {
   try {

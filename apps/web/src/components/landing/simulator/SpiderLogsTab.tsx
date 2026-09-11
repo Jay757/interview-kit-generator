@@ -18,12 +18,12 @@ export function SpiderLogsTab({
 }: SpiderLogsTabProps) {
   return (
     <div className="space-y-5 animate-fadeIn font-mono">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/[0.06]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200 dark:border-white/[0.06]">
         <div className="flex items-center gap-2 text-xs">
-          <Terminal className="w-4 h-4 text-indigo-400 shrink-0" />
-          <span className="font-bold">TRAO Autonomous Spider — Crawl Session Active</span>
+          <Terminal className="w-4 h-4 text-indigo-500 dark:text-indigo-400 shrink-0" />
+          <span className="font-bold text-slate-800 dark:text-zinc-200">TRAO Autonomous Spider — Crawl Session Active</span>
         </div>
-        <span className="text-[11px] text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 self-start sm:self-auto">
+        <span className="text-[11px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 self-start sm:self-auto font-semibold">
           SSRF Protected • Rate-Limited
         </span>
       </div>

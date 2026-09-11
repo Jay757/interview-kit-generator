@@ -13,7 +13,7 @@ interface QuestionBankTabProps {
 export function QuestionBankTab({ question, theme }: QuestionBankTabProps) {
   return (
     <div className="space-y-5 animate-fadeIn">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/[0.06]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-white/[0.06]">
         <div>
           <span className="text-xs font-mono font-bold text-amber-500">
             CATEGORY: {question.category.toUpperCase()}
@@ -28,10 +28,17 @@ export function QuestionBankTab({ question, theme }: QuestionBankTabProps) {
           </h4>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-white/10">
+          <span
+            className={cn(
+              "text-[10px] font-mono px-2 py-0.5 rounded border",
+              theme === "dark"
+                ? "bg-zinc-800 text-zinc-300 border-white/10"
+                : "bg-slate-100 text-slate-700 border-slate-300 font-semibold"
+            )}
+          >
             Matches [{question.reqBadge}]
           </span>
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/30">
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/15 text-purple-500 dark:text-purple-400 border border-purple-500/30 font-semibold">
             Difficulty: Level {question.difficulty}/3
           </span>
         </div>

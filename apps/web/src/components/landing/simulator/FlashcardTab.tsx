@@ -17,10 +17,10 @@ export function FlashcardTab({ flashcard, company, theme }: FlashcardTabProps) {
   return (
     <div className="flex flex-col items-center justify-center py-2 sm:py-4 space-y-6 animate-fadeIn">
       <div className="text-center space-y-1">
-        <span className="text-xs font-mono text-zinc-500 uppercase tracking-wider">
+        <span className="text-xs font-mono text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
           Interactive Spaced-Repetition Simulator
         </span>
-        <h4 className="text-sm sm:text-base font-bold">Click card to reveal answer outline</h4>
+        <h4 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">Click card to reveal answer outline</h4>
       </div>
 
       {/* 3D Flippable Card */}
@@ -39,8 +39,8 @@ export function FlashcardTab({ flashcard, company, theme }: FlashcardTabProps) {
         >
           {/* Front Face */}
           <div className="absolute inset-0 backface-hidden p-5 sm:p-6 flex flex-col justify-between">
-            <div className="flex justify-between items-center text-xs font-mono text-zinc-500">
-              <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20">
+            <div className="flex justify-between items-center text-xs font-mono text-slate-500 dark:text-zinc-400">
+              <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 font-semibold">
                 QUESTION PROMPT
               </span>
               <span>Click to flip ↻</span>
@@ -53,15 +53,15 @@ export function FlashcardTab({ flashcard, company, theme }: FlashcardTabProps) {
             >
               {flashcard.front}
             </p>
-            <div className="text-center text-xs font-mono text-zinc-500">
+            <div className="text-center text-xs font-mono text-slate-500 dark:text-zinc-400">
               Targeted for {company}
             </div>
           </div>
 
           {/* Back Face */}
           <div className="absolute inset-0 backface-hidden rotate-y-180 p-5 sm:p-6 flex flex-col justify-between">
-            <div className="flex justify-between items-center text-xs font-mono text-zinc-500">
-              <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+            <div className="flex justify-between items-center text-xs font-mono text-slate-500 dark:text-zinc-400">
+              <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-semibold">
                 ANSWER CRITERIA
               </span>
               <span>Click to flip ↻</span>
@@ -74,8 +74,8 @@ export function FlashcardTab({ flashcard, company, theme }: FlashcardTabProps) {
             >
               {flashcard.back}
             </p>
-            <div className="flex justify-center items-center gap-2 pt-2 border-t border-white/[0.06]">
-              <span className="text-[10px] font-mono text-zinc-500">Rate confidence:</span>
+            <div className="flex justify-center items-center gap-2 pt-2 border-t border-slate-200 dark:border-white/[0.06]">
+              <span className="text-[10px] font-mono text-slate-500 dark:text-zinc-400">Rate confidence:</span>
               {[1, 2, 3, 4, 5].map((score) => (
                 <button
                   key={score}

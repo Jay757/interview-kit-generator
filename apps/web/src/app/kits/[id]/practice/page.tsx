@@ -157,6 +157,8 @@ export default function PracticeModePage() {
   const [evaluations, setEvaluations] = useState<Record<string, AIEvaluation>>({});
   const [evaluating, setEvaluating] = useState(false);
   const [showModelAnswer, setShowModelAnswer] = useState<Record<string, boolean>>({});
+  const [generatedAnswers, setGeneratedAnswers] = useState<Record<string, string>>({});
+  const [generatingAnswer, setGeneratingAnswer] = useState(false);
   const [questionFilter, setQuestionFilter] = useState<string>("all");
 
   // --- FLASHCARD STATE ---
@@ -286,6 +288,43 @@ export default function PracticeModePage() {
       ...prev,
       [qid]: !prev[qid],
     }));
+  };
+
+  // Generate on-demand staff-level AI model answer
+  const handleGenerateModelAnswer = async () => {
+    if (!currentQuestion || generatingAnswer) return;
+
+    try {
+      setGeneratingAnswer(true);
+      const res = await fetch(`${API_URL}/kits/${id}/practice/generate-answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ question_id: currentQuestion.id }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error?.message || "Failed to generate answer.");
+      }
+
+      const json = await res.json();
+      if (json.model_answer) {
+        setGeneratedAnswers((prev) => ({
+          ...prev,
+          [currentQuestion.id]: json.model_answer,
+        }));
+        setShowModelAnswer((prev) => ({
+          ...prev,
+          [currentQuestion.id]: true,
+        }));
+      }
+    } catch (err: any) {
+      console.error("Generate model answer error:", err);
+      alert(err.message || "Failed to generate model answer.");
+    } finally {
+      setGeneratingAnswer(false);
+    }
   };
 
   // Submit flashcard confidence rating
@@ -545,7 +584,7 @@ export default function PracticeModePage() {
 
                       {/* ACTIONS: SCORE WITH AI & SHOW MODEL ANSWER */}
                       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
                           <button
                             onClick={handleEvaluateAnswer}
                             disabled={evaluating || !(userAnswers[currentQuestion.id] || "").trim()}
@@ -563,12 +602,30 @@ export default function PracticeModePage() {
                             )}
                           </button>
 
-                          {/* SHOW MODEL ANSWER (Strictly hidden until user clicks, prevents spoiler & saves token) */}
+                          {/* ON-DEMAND STAFF-LEVEL ANSWER GENERATION */}
+                          <button
+                            onClick={handleGenerateModelAnswer}
+                            disabled={generatingAnswer}
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 font-semibold text-sm border border-amber-500/30 transition-all disabled:opacity-50"
+                          >
+                            {generatingAnswer ? (
+                              <>
+                                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+                                <span>Synthesizing Staff Answer...</span>
+                              </>
+                            ) : (
+                              <>
+                                <span>⚡ Generate Full AI Answer</span>
+                              </>
+                            )}
+                          </button>
+
+                          {/* SHOW MODEL ANSWER TOGGLE */}
                           <button
                             onClick={() => toggleModelAnswer(currentQuestion.id)}
                             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-white/[0.06] dark:hover:bg-white/[0.1] text-slate-700 dark:text-zinc-200 font-medium text-sm border border-slate-200 dark:border-white/[0.08] transition-all"
                           >
-                            <span>{isModelAnswerVisible ? "👁️ Hide Model Answer" : "💡 Show Model Answer"}</span>
+                            <span>{isModelAnswerVisible ? "👁️ Hide Model Answer" : "💡 Show Rubric Baseline"}</span>
                           </button>
                         </div>
 
@@ -606,7 +663,9 @@ export default function PracticeModePage() {
                         <div className="flex items-center gap-2">
                           <span className="text-amber-500 font-bold text-sm">🎯 Benchmark Model Answer</span>
                           <span className="text-[11px] text-amber-600/80 dark:text-amber-400/80 font-medium">
-                            (Staff / Principal Baseline)
+                            {generatedAnswers[currentQuestion.id]
+                              ? "(Staff/Principal Live AI Exemplar)"
+                              : "(Staff / Principal Baseline)"}
                           </span>
                         </div>
                         <button
@@ -618,9 +677,10 @@ export default function PracticeModePage() {
                       </div>
 
                       <div className="text-sm sm:text-base leading-relaxed text-slate-800 dark:text-zinc-200 whitespace-pre-line font-normal bg-white/60 dark:bg-black/40 p-4 rounded-2xl border border-amber-500/10">
-                        {currentEval?.modelAnswer || currentQuestion.answer_outline || (
-                          "Demonstrate architectural constraints, failure isolation boundaries, idempotency keys, and explicit performance SLAs."
-                        )}
+                        {generatedAnswers[currentQuestion.id] ||
+                          currentEval?.modelAnswer ||
+                          currentQuestion.answer_outline ||
+                          "Demonstrate architectural constraints, failure isolation boundaries, idempotency keys, and explicit performance SLAs."}
                       </div>
                     </div>
                   )}

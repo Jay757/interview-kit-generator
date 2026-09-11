@@ -66,8 +66,7 @@ export function FeaturesBento({ theme }: FeaturesBentoProps) {
                 stroke="currentColor"
                 strokeWidth="1"
                 strokeDasharray="4 4"
-                className="text-indigo-400 animate-spin"
-                style={{ animationDuration: "35s" }}
+                className="text-indigo-400 opacity-60"
               />
               <circle cx="100" cy="100" r="50" stroke="currentColor" strokeWidth="1" className="text-amber-500" />
               <circle cx="100" cy="100" r="20" fill="currentColor" className="text-indigo-500/20" />
@@ -177,9 +176,14 @@ export function FeaturesBento({ theme }: FeaturesBentoProps) {
             </p>
           </div>
 
-          <div className="mt-6 flex items-center justify-between text-xs font-mono text-zinc-500 border-t pt-3 border-white/[0.06]">
+          <div
+            className={cn(
+              "mt-6 flex items-center justify-between text-xs font-mono border-t pt-3",
+              theme === "dark" ? "text-zinc-400 border-white/[0.06]" : "text-slate-600 border-slate-200"
+            )}
+          >
             <span>Exact Integer Minutes</span>
-            <span className="text-amber-500">Pure TypeScript</span>
+            <span className="text-amber-500 font-semibold">Pure TypeScript</span>
           </div>
         </motion.div>
 
@@ -219,8 +223,10 @@ export function FeaturesBento({ theme }: FeaturesBentoProps) {
                   theme === "dark" ? "bg-[#161a28] border-white/[0.06]" : "bg-slate-50 border-slate-200"
                 )}
               >
-                <span className="text-amber-400 font-bold block mb-1">Inline Editing</span>
-                <span className="text-[11px] text-zinc-500">Instant updates</span>
+                <span className="text-amber-500 font-bold block mb-1">Inline Editing</span>
+                <span className={theme === "dark" ? "text-[11px] text-zinc-400" : "text-[11px] text-slate-500"}>
+                  Instant updates
+                </span>
               </div>
               <div
                 className={cn(
@@ -228,8 +234,10 @@ export function FeaturesBento({ theme }: FeaturesBentoProps) {
                   theme === "dark" ? "bg-[#161a28] border-white/[0.06]" : "bg-slate-50 border-slate-200"
                 )}
               >
-                <span className="text-emerald-400 font-bold block mb-1">Pinned Items</span>
-                <span className="text-[11px] text-zinc-500">Never overwritten</span>
+                <span className="text-emerald-500 font-bold block mb-1">Pinned Items</span>
+                <span className={theme === "dark" ? "text-[11px] text-zinc-400" : "text-[11px] text-slate-500"}>
+                  Never overwritten
+                </span>
               </div>
               <div
                 className={cn(
@@ -237,8 +245,10 @@ export function FeaturesBento({ theme }: FeaturesBentoProps) {
                   theme === "dark" ? "bg-[#161a28] border-white/[0.06]" : "bg-slate-50 border-slate-200"
                 )}
               >
-                <span className="text-purple-400 font-bold block mb-1">Section Regen</span>
-                <span className="text-[11px] text-zinc-500">Targeted updates</span>
+                <span className="text-purple-500 font-bold block mb-1">Section Regen</span>
+                <span className={theme === "dark" ? "text-[11px] text-zinc-400" : "text-[11px] text-slate-500"}>
+                  Targeted updates
+                </span>
               </div>
             </div>
           </div>

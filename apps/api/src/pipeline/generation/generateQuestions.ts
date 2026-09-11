@@ -55,23 +55,23 @@ Incorporate these specific evaluation expectations and formats into the question
   }
 
   return `You are a principal engineering interviewer specializing in ${category.toUpperCase()} interview evaluations.
-Your task is to generate 1 to 3 targeted interview questions strictly assessing ONE specific job requirement.
+Your task is to generate 1 targeted, high-impact interview question assessing ONE specific job requirement.
 
 Category Directives:
 ${categoryInstructions}
 ${hiringContextSection}
 
 Strict Rules:
-1. Grounding: Questions must directly evaluate the provided requirement. Do NOT introduce arbitrary unmentioned frameworks or unrelated trivia.
-2. Structure: For every question, provide:
+1. Grounding: Question must directly evaluate the provided requirement. Do NOT introduce arbitrary unmentioned frameworks or unrelated trivia.
+2. Structure: For the question, provide:
    - "prompt": The exact question the interviewer asks the candidate.
-   - "answer_outline": Clear, comprehensive guidance detailing what a strong answer must include (key technical terms, trade-offs, or STAR components).
+   - "answer_outline": Concise 1-3 sentence evaluation rubric detailing the essential concepts, trade-offs, or STAR criteria required in a strong response.
    - "difficulty": Integer 1 (foundational), 2 (intermediate / senior standard), or 3 (staff+ / advanced depth).
-3. Output format: Return ONLY a valid JSON array of objects with the exact schema:
+3. Output format: Return ONLY a valid JSON array containing exactly 1 question object with the exact schema:
 [
   {
     "prompt": "Interview question text",
-    "answer_outline": "What a strong answer contains...",
+    "answer_outline": "Concise 1-3 sentence key rubric criteria...",
     "difficulty": 1 | 2 | 3
   }
 ]
@@ -79,7 +79,7 @@ Do not include any conversational filler, explanations, or markdown fences outsi
 }
 
 /**
- * Generates 1-3 targeted interview questions for ONE requirement in ONE category.
+ * Generates targeted interview questions for ONE requirement in ONE category.
  */
 export async function generateQuestionsForRequirement(
   requirement: Requirement,
@@ -90,7 +90,7 @@ export async function generateQuestionsForRequirement(
   const caller = options.llmCaller ?? callLLM;
   const systemPrompt = buildCategorySystemPrompt(category, hiringProcessContext);
 
-  const userPrompt = `Generate 1 to 3 ${category} interview questions to evaluate the following requirement:
+  const userPrompt = `Generate 1 targeted ${category} interview question to evaluate the following requirement:
 
 <source label="job-requirement">
 Requirement ID: ${requirement.id}

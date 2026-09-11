@@ -42,12 +42,22 @@ export async function extractCompanyBrief(
     return { ...NO_INFO_FALLBACK };
   }
 
+  // Condense & sanitize scraped content to prevent overloading LLM token limits (max ~2,500 chars about, ~1,500 chars hiring)
+  const sanitizedAbout = cleanAbout
+    .replace(/\s+/g, " ")
+    .slice(0, 2500)
+    .trim();
+  const sanitizedHiring = cleanHiring
+    .replace(/\s+/g, " ")
+    .slice(0, 1500)
+    .trim();
+
   const caller = options.llmCaller ?? callLLM;
 
   const userPrompt = `Extract the company brief from the following retrieved pages:
 
-${cleanAbout ? `<source label="about-pages">\n${cleanAbout}\n</source>` : ""}
-${cleanHiring ? `<source label="hiring-pages">\n${cleanHiring}\n</source>` : ""}`;
+${sanitizedAbout ? `<source label="about-pages">\n${sanitizedAbout}\n</source>` : ""}
+${sanitizedHiring ? `<source label="hiring-pages">\n${sanitizedHiring}\n</source>` : ""}`;
 
   let rawResponse = await caller(SYSTEM_PROMPT, userPrompt, { jsonMode: true });
   let candidate: CompanyBriefCandidate;
