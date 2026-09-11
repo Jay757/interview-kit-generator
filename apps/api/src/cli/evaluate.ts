@@ -74,11 +74,14 @@ export async function runBatchEvaluation(
   outputPath: string,
   options: BatchOptions = {}
 ): Promise<EvaluationBatchOutput> {
-  const resolvedInput = path.resolve(process.cwd(), inputPath);
-  const resolvedOutput = path.resolve(process.cwd(), outputPath);
+  const baseDir = process.env.INIT_CWD || process.cwd();
+  const candidateInput1 = path.isAbsolute(inputPath) ? inputPath : path.resolve(baseDir, inputPath);
+  const candidateInput2 = path.isAbsolute(inputPath) ? inputPath : path.resolve(process.cwd(), inputPath);
+  const resolvedInput = fs.existsSync(candidateInput1) ? candidateInput1 : candidateInput2;
+  const resolvedOutput = path.isAbsolute(outputPath) ? outputPath : path.resolve(baseDir, outputPath);
 
   if (!fs.existsSync(resolvedInput)) {
-    throw new Error(`Input cases file does not exist at '${resolvedInput}'`);
+    throw new Error(`Input cases file does not exist at '${resolvedInput}' (checked baseDir: ${baseDir})`);
   }
 
   const rawInput = fs.readFileSync(resolvedInput, "utf-8");

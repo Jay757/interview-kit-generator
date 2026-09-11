@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Navbar } from "../../components/Navbar";
 import { useAuth } from "../../context/AuthContext";
@@ -62,7 +62,7 @@ export default function KitsDashboardPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Fetch kits from API
-  const fetchKits = async () => {
+  const fetchKits = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch(`${API_URL}/kits`, {
@@ -81,7 +81,7 @@ export default function KitsDashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
 
   useEffect(() => {
     if (!authLoading) {
@@ -91,7 +91,7 @@ export default function KitsDashboardPage() {
         fetchKits();
       }
     }
-  }, [user, authLoading]);
+  }, [user, authLoading, router, fetchKits]);
 
   // Polling for generating kits every 3s
   useEffect(() => {
