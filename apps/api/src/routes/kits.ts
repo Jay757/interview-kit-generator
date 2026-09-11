@@ -1133,17 +1133,35 @@ Baseline Rubric: ${question.answer_outline}`;
     try {
       const llmRes = await callLLM(systemPrompt, userPrompt, { temperature: 0.3 });
       modelAnswerText = llmRes.text.trim();
-    } catch (llmErr) {
-      modelAnswerText = `[Exemplar Architecture & Strategy]
-1. Core Architecture:
-Address ${question.prompt} by establishing clear SLA boundaries, state isolation, and idempotency guarantees.
+    } catch (llmErr: any) {
+      console.warn("[generate-answer] LLM call failed, generating category-aware rubric exemplar:", llmErr?.message);
+
+      const categoryTitle =
+        question.category === "system-design"
+          ? "System Architecture & Scalability"
+          : question.category === "behavioural"
+          ? "STAR Leadership & Communication"
+          : question.category === "company-fit"
+          ? "Mission Alignment & Ownership"
+          : "Technical Execution & Problem Solving";
+
+      const productionPoints =
+        question.category === "system-design"
+          ? "- Latency & throughput targets (e.g. p99 < 50ms, graceful backpressure)\n- Failure domains, partition tolerance, and dead-letter queueing\n- Observability: Distributed tracing, Prometheus metrics, and automated alerts"
+          : question.category === "behavioural" || question.category === "company-fit"
+          ? "- Cross-functional stakeholder communication and transparent trade-offs\n- Measurable impact metrics on team velocity, delivery, or incident frequency\n- Retrospective learnings and long-term organizational value"
+          : "- Robust type safety, component modularity, and explicit state boundaries\n- Test coverage (unit, integration) and regression prevention\n- Developer ergonomics, clean abstractions, and zero-downtime migration";
+
+      modelAnswerText = `[Staff/Principal Exemplar: ${categoryTitle}]
+
+1. Core Strategy & Direct Approach:
+Lead with an executive summary that demonstrates seniority and sound technical judgment. Frame the problem in terms of constraints, business impact, and key architectural trade-offs before diving into low-level details.
 
 2. Technical Execution:
-${question.answer_outline}
+${question.answer_outline || "Structure the solution around atomic requirements, explicit interfaces, and defensive architecture."}
 
-3. Production Considerations:
-- Latency targets: p99 < 50ms, structured dead-letter queuing.
-- Telemetry: Distributed tracing, Prometheus saturation metrics, and circuit-breaking.`;
+3. Production Considerations & Trade-offs:
+${productionPoints}`;
     }
 
     res.status(200).json({
