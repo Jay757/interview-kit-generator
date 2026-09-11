@@ -1,4 +1,4 @@
-import { LLMCallOptions, LLMError, LLMResponse } from "./types.js";
+import { LLMCallOptions, LLMError, LLMErrorCode, LLMResponse } from "./types.js";
 
 const DEFAULT_MODEL = "google/gemini-2.5-flash";
 const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
@@ -144,7 +144,7 @@ export async function callLLM(
         continue;
       }
 
-      let code = "LLM_UNAVAILABLE";
+      let code: LLMErrorCode = "LLM_UNAVAILABLE";
       let friendlyMessage = rawMessage;
 
       if (isQuotaError) {

@@ -23,7 +23,9 @@ export type LLMErrorCode =
   | "LLM_TIMEOUT"
   | "LLM_UNAVAILABLE"
   | "LLM_CONFIG_MISSING"
-  | "LLM_RATE_LIMITED";
+  | "LLM_RATE_LIMITED"
+  | "LLM_QUOTA_EXCEEDED"
+  | "LLM_AUTH_ERROR";
 
 export class LLMError extends Error {
   readonly code: LLMErrorCode;
