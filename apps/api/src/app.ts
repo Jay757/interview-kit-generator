@@ -19,11 +19,14 @@ export function createApp(options?: CreateAppOptions) {
   }
 
   const corsOriginEnv = process.env.CORS_ORIGIN || "http://localhost:3000";
-  const allowedOrigins = corsOriginEnv.split(",").map((o) => o.trim());
+  const allowedOrigins = corsOriginEnv.split(",").map((o: string) => o.trim());
 
   app.use(
     cors({
-      origin: (origin, callback) => {
+      origin: (
+        origin: string | undefined,
+        callback: (err: Error | null, allow?: boolean) => void
+      ) => {
         if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes("*")) {
           callback(null, true);
         } else if (origin.endsWith(".vercel.app")) {

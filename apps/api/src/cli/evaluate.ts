@@ -201,6 +201,7 @@ Options:
   --output, -o  Path to output JSON destination file
 `);
     process.exit(1);
+    return;
   }
 
   console.log(`[evaluate] Reading cases from: ${inputPath}`);
