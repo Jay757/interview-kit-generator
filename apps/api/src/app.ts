@@ -13,10 +13,26 @@ interface CreateAppOptions {
 export function createApp(options?: CreateAppOptions) {
   const app = express();
 
-  const allowedOrigin = process.env.CORS_ORIGIN || "http://localhost:3000";
+  const isProduction = process.env.NODE_ENV === "production";
+  if (isProduction) {
+    app.set("trust proxy", 1);
+  }
+
+  const corsOriginEnv = process.env.CORS_ORIGIN || "http://localhost:3000";
+  const allowedOrigins = corsOriginEnv.split(",").map((o) => o.trim());
+
   app.use(
     cors({
-      origin: allowedOrigin,
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes("*")) {
+          callback(null, true);
+        } else if (origin.endsWith(".vercel.app")) {
+          // Allow Vercel preview & production domains
+          callback(null, true);
+        } else {
+          callback(new Error(`Origin ${origin} not allowed by CORS`));
+        }
+      },
       credentials: true,
     })
   );
@@ -33,8 +49,6 @@ export function createApp(options?: CreateAppOptions) {
       ttl: 14 * 24 * 60 * 60, // 14 days
       autoRemove: "native",
     });
-
-  const isProduction = process.env.NODE_ENV === "production";
 
   app.use(
     session({
